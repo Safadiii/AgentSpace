@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
-from models import AgentState, AgentDefinition
+from core.models import AgentState, AgentDefinition
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 

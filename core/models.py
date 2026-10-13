@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -24,7 +23,7 @@ class AgentState(BaseModel):
     )
 
     request: str = Field(min_length=1)
-    result: str | None
+    result: str | None = None
 
 
     
