@@ -22,13 +22,13 @@ class OpenAlexClient:
     ) -> list[Paper]:
 
         params = {
-            "search": query,
+            "search.semantic": query,
             "per_page": limit,
         }
 
         if from_year is not None:
             params["filter"] = (
-                f"from_publication_date:{from_year}-01-01"
+                f"publication_year:>{from_year - 1}"
             )
 
         headers = (
