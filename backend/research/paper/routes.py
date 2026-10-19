@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from backend.init import get_session
-from backend.research.schemas import PaperRead, PaperCreate
+from backend.research.schemas import PaperRead, PaperCreate, PaperDetailedRead
 from backend.research.paper.services import PaperServices
 from typing import List
 
@@ -36,6 +36,26 @@ def get_paper(paper_id: int, session: DBSession):
         )
 
     return paper
+
+@paper_router.get("/papers/{paper_id}/detailed", response_model=PaperDetailedRead)
+def get_detailed_paper(paper_id: int, session: DBSession):
+    service = PaperServices(session)
+
+    paper = service.get_paper_with_details(paper_id)
+
+    if paper is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found"
+        )
+
+    return paper
+
+@paper_router.get("/detailed/papers", response_model=List[PaperDetailedRead])
+def get_detailed_papers(session: DBSession, limit: int = 20, offset: int = 0):
+    service = PaperServices(session)
+
+    return service.get_detailed_papers(limit, offset)
 
 
 @paper_router.post("/papers", response_model=PaperRead)

@@ -22,6 +22,14 @@ class PaperCreate(SQLModel):
         default_factory=dict
     )
 
+    authors: list[PaperAuthorCreate] = Field(
+        default_factory=list
+    )
+
+    topics: list[PaperTopicCreate] = Field(
+        default_factory=list
+    )
+
 
 class PaperRead(SQLModel):
     id: int
@@ -31,5 +39,39 @@ class PaperRead(SQLModel):
     publication_year: int | None = None
 
 class PaperAuthorCreate(SQLModel):
-    paper_id: int
     author_name: str
+    openalex_author_id: str | None = Field(default=None, max_length=255)
+    author_order: int = Field(default=0, ge=0)
+
+class PaperTopicCreate(SQLModel):
+    topic_name: str = Field(min_length=1, max_length=255)
+    openalex_topic_id: str | None = Field(default=None, max_length=255)
+    relevance_score: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class PaperAuthorRead(SQLModel):
+    id: int
+    author_name: str
+    author_order: int
+    openalex_author_id: str | None = None
+
+
+class PaperTopicRead(SQLModel):
+    id: int
+    topic_name: str
+    relevance_score: float | None = None
+
+
+class PaperDetailedRead(SQLModel):
+    id: int
+    openalex_id: str
+    title: str
+    publication_year: int | None = None
+
+    authors: list[PaperAuthorRead] = Field(
+        default_factory=list
+    )
+
+    topics: list[PaperTopicRead] = Field(
+        default_factory=list
+    )
