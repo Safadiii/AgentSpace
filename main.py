@@ -9,6 +9,9 @@ import asyncio
 from agents.research.agent import ResearchAgent
 from agents.research.state import ResearchState
 
+from fastapi import FastAPI
+
+
 # load_dotenv()
 
 # model = ChatNVIDIA (
@@ -38,7 +41,6 @@ async def main():
         print(f"Year: {paper.year}")
         print(f"URL: {paper.url}")
         print(f"Abstract: {paper.abstract}")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
