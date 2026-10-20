@@ -101,6 +101,8 @@ class ResearchInterest(SQLModel, table=True):
     topic_name: str = Field(index=True, min_length=1, max_length=255)
     interest_type: InterestType = Field(default=InterestType.INCLUDE, index=True)
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    last_searched_at: datetime | None = Field(default=None, index=True)
+    search_count: int = Field(default=0, ge=0)
 
     user: UserProfile = Relationship(back_populates="research_interests")
 

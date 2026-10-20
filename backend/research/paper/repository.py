@@ -1,6 +1,6 @@
-from sqlmodel import select, Session
+from sqlmodel import select, Session, func
 
-from storage.research.models import Paper, PaperAuthor, PaperTopic
+from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, InterestType
 from typing import List
 from sqlalchemy.orm import selectinload
 
@@ -91,4 +91,54 @@ class PaperTopicRepository:
 
     def add(self, topic: PaperTopic) -> None:
         self.session.add(topic)
-    
+
+class ResearchInterestRepository:
+    '''
+    Repository of functions handling the DB for actions or code related to interests
+    '''
+
+    def __init__(self, session: Session):
+        self.session = session
+
+
+    # Returns the users interest in a topic or not
+    def get_user_topic_interest(self, user_id: int, topic: str) -> ResearchInterest | None:
+        statement = (
+            select(ResearchInterest)
+            .where(
+                ResearchInterest.user_id == user_id,
+                func.lower(ResearchInterest.topic_name)
+                == topic.lower()
+            )
+        )
+
+        return self.session.exec(statement).first()
+
+    def add(self, interest: ResearchInterest) -> None:
+        self.session.add(interest)
+
+    # Retrieves the users last search interest, helpful for algorithm + used as fallback if no topic is being searched
+    def get_latest_interest(self, user_id: int) -> ResearchInterest | None:
+        statement = (
+            select(ResearchInterest)
+            .where(
+                ResearchInterest.user_id == user_id,
+                ResearchInterest.interest_type == InterestType.INCLUDE,
+                ResearchInterest.last_searched_at.is_not(None)
+            )
+            .order_by(
+                ResearchInterest.last_searched_at.desc(),
+                ResearchInterest.id.desc()
+            )
+        )
+
+        return self.session.exec(statement).first()
+
+    def get_all_users_interests(self, user_id: int) -> List[ResearchInterest]:
+        statement = (
+            select(ResearchInterest)
+            .where(ResearchInterest.user_id == user_id)
+            .order_by(ResearchInterest.created_at.desc())
+        )
+
+        return list(self.session.exec(statement).all())

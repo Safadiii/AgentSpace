@@ -1,9 +1,12 @@
 from sqlmodel import Session
-from backend.research.paper.repository import PaperRepository, PaperAuthorRepository, PaperTopicRepository
-from storage.research.models import Paper, PaperAuthor, PaperTopic
+from backend.research.paper.repository import PaperRepository, PaperAuthorRepository, PaperTopicRepository, ResearchInterestRepository
+from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, utc_now, InterestType, RecommendationMode
 from typing import List
 from backend.research.schemas import PaperCreate, PaperRead
 
+
+class NoSearchHistoryError(Exception):
+    pass
 
 class PaperServices:
 
@@ -124,3 +127,83 @@ class PaperServices:
 
         
         
+class ResearchPreferenceServices:
+    def __init__(self, session: Session):
+        self.session = session
+        self.repository = ResearchInterestRepository(session)
+
+    def record_research_interest(self, user_id: int, topic: str) -> ResearchInterest:
+        topic = " ".join(topic.split())
+
+        if user_id <= 0:
+            raise ValueError("Invalid User ID")
+
+        if not topic or len(topic) > 255:
+            raise ValueError("Invalid topic length (Must be between 1 and 255)")
+
+        try:
+            existing = self.repository.get_user_topic_interest(user_id, topic)
+
+            now = utc_now()
+
+            if existing is not None:
+                existing.interest_type = InterestType.INCLUDE
+                existing.search_count += 1
+                existing.last_searched_at = now
+                interest = existing
+            else:
+                interest = ResearchInterest(
+                    user_id=user_id,
+                    topic_name=topic,
+                    interest_type=InterestType.INCLUDE,
+                    last_searched_at=now,
+                    search_count=1
+                )
+
+                self.repository.add(interest)
+            self.session.commit()
+        except:
+            self.session.rollback()
+            raise
+
+        self.session.refresh(interest)
+
+        return interest
+
+    def get_interests(
+        self,
+        user_id: int
+    ) -> list[ResearchInterest]:
+
+        return self.repository.get_all_users_interests(user_id)
+    def get_fallback_topic(self, user_id: int) -> str | None:
+        latest = self.repository.get_latest_interest(
+            user_id
+        )
+
+        if latest is None:
+            return None
+
+        return latest.topic_name
+
+class ResearchQueryServices:
+    def __init__(self, session: Session):
+        self.preference = ResearchPreferenceServices(session)
+
+    def resolve_query(self, user_id: int, prompt: str | None) -> tuple[RecommendationMode, str]:
+        if user_id <= 0:
+            raise ValueError("Invalid User ID")
+
+        query = " ".join(prompt.split()) if prompt else ""
+
+        if query:
+            interest = self.preference.record_research_interest(user_id, topic=query)
+
+            return (RecommendationMode.TOPIC, interest.topic_name)
+
+        fallback = self.preference.get_fallback_topic(user_id=user_id)
+
+        if fallback is None:
+            raise NoSearchHistoryError("No search history found, search for something first")
+
+        return (RecommendationMode.PERSONALIZED, fallback)
