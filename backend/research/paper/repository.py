@@ -1,6 +1,6 @@
 from sqlmodel import select, Session, func
 
-from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, InterestType
+from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, InterestType, RecommendationRun, RecommendationItem
 from typing import List
 from sqlalchemy.orm import selectinload
 
@@ -139,6 +139,52 @@ class ResearchInterestRepository:
             select(ResearchInterest)
             .where(ResearchInterest.user_id == user_id)
             .order_by(ResearchInterest.created_at.desc())
+        )
+
+        return list(self.session.exec(statement).all())
+
+
+class RecommendationRunRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def add(self, run: RecommendationRun) -> None:
+        self.session.add(run)
+
+    def get(self, run_id: int) -> RecommendationRun | None:
+        return self.session.get(RecommendationRun, run_id)
+
+    def get_by_user(self, user_id: int, limit: int = 20, offset: int = 0) -> List[RecommendationRun]:
+        statement = (
+            select(RecommendationRun)
+            .where(RecommendationRun.user_id == user_id)
+            .order_by(
+                RecommendationRun.created_at.desc(),
+                RecommendationRun.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+
+        return list(self.session.exec(statement).all())
+
+class RecommendationItemRepository:
+    def __init__(self, session: Session):
+        self.session = session
+    def add(self, item: RecommendationItem) -> None:
+        self.session.add(item)
+    def get_by_run_id(self, run_id: int) -> List[RecommendationItem]:
+        statement = (
+            select(RecommendationItem)
+            .where(RecommendationItem.run_id == run_id)
+            .order_by(RecommendationItem.rank.asc())
+        )
+
+        return list(self.session.exec(statement).all())
+    def get_by_paper_id(self, paper_id: int) -> List[RecommendationItem]:
+        statement = (
+            select(RecommendationItem)
+            .where(RecommendationItem.paper_id == paper_id)
+            .order_by(RecommendationItem.rank.asc())
         )
 
         return list(self.session.exec(statement).all())
