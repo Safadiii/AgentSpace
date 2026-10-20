@@ -1,0 +1,9 @@
+fastapi==0.155.0
+httpx==0.28.1
+langchain_nvidia_ai_endpoints==1.5.0
+langgraph==1.2.16
+pydantic==2.14.1
+pytest==9.1.1
+python-dotenv==1.2.4
+SQLAlchemy==2.1.5
+sqlmodel==0.0.48
