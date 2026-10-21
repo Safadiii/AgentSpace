@@ -271,3 +271,29 @@ class RecommendationRunServices:
         self.session.refresh(run)
 
         return run
+    def fail_run(self, run_id: int, error_message: str) -> RecommendationRun:
+            try:
+                run = self.repository.get(run_id)
+    
+                if run is None:
+                    raise ValueError("Recommendation Run Not Found")
+    
+                if run.status != RecommendationStatus.PENDING:
+                    raise ValueError("Run is not pending")
+    
+                run.status = RecommendationStatus.FAILED
+                run.error_message = error_message
+                run.completed_at = utc_now()
+                self.session.commit()
+            except Exception:
+                self.session.rollback()
+                raise
+    
+            self.session.refresh(run)
+    
+            return run
+    def get_run_with_items(self, run_id: int) -> RecommendationRun | None:
+        if run_id <= 0:
+            raise ValueError("Invalid run ID")
+
+        return self.repository.get_with_items(run_id)

@@ -1,13 +1,16 @@
 
+import pytest
+
 from sqlmodel import Session, select
 
-from backend.init import engine
+from backend.init import engine, init_db
 from backend.research.paper.services import (
     ResearchQueryServices,
     RecommendationRunServices,
 )
 
 from storage.research.models import (
+    UserProfile,
     Paper,
     RecommendationItem,
     RecommendationMode,
@@ -15,127 +18,283 @@ from storage.research.models import (
 )
 
 
-USER_ID = 1  # Must exist in your database
+# ------------------------------------------
+# PYTEST FIXTURES
+# ------------------------------------------
 
+@pytest.fixture(scope="session", autouse=True)
+def prepare_test_database():
+    database_name = engine.url.database or ""
 
-def test_start_run():
-    with Session(engine) as session:
-        resolver = ResearchQueryServices(session)
-        recommendation_service = RecommendationRunServices(session)
-
-        # 1. Search with an explicit topic
-        mode, query = resolver.resolve_query(
-            user_id=USER_ID,
-            prompt="Reinforcement Learning"
+    if not database_name.endswith("_test"):
+        raise RuntimeError(
+            f"Refusing to test against: {database_name}. "
+            "Use a database ending in _test."
         )
 
-        assert mode == RecommendationMode.TOPIC
+    # Create tables once, outside test transactions
+    init_db()
 
-        # 2. Create recommendation run
-        run = recommendation_service.start_run(
-            user_id=USER_ID,
-            mode=mode,
-            query=query,
-            algorithm_version="v1",
+
+@pytest.fixture
+def db_session(prepare_test_database):
+    with engine.connect() as connection:
+        transaction = connection.begin()
+
+        try:
+            with Session(
+                bind=connection,
+                join_transaction_mode="create_savepoint",
+            ) as session:
+                yield session
+        finally:
+            # Undo ALL database changes from this test
+            transaction.rollback()
+
+
+# ------------------------------------------
+# TEST HELPERS
+# ------------------------------------------
+
+def get_test_user_id(session: Session) -> int:
+    user = session.exec(
+        select(UserProfile).where(
+            UserProfile.name == "Integration Test User"
         )
+    ).first()
 
-        # 3. Verify the run
-        assert run.id is not None
-        assert run.user_id == USER_ID
-        assert run.query == "Reinforcement Learning"
-        assert run.status == RecommendationStatus.PENDING
-        assert run.algorithm_version == "v1"
+    if user is None:
+        user = UserProfile(name="Integration Test User")
+        session.add(user)
+        session.commit()
+        session.refresh(user)
 
-        print(f"\nCreated run: {run.id}")
+    assert user.id is not None
+    return user.id
 
-        # 4. Test fallback search
-        fallback_mode, fallback_query = resolver.resolve_query(
-            user_id=USER_ID,
-            prompt=None
+
+def get_test_paper(session: Session) -> Paper:
+    paper = session.exec(
+        select(Paper).where(
+            Paper.openalex_id == "W_TEST_RUN_001"
         )
+    ).first()
 
-        assert fallback_mode == RecommendationMode.PERSONALIZED
-        assert fallback_query == "Reinforcement Learning"
+    if paper is None:
+        paper = Paper(
+            openalex_id="W_TEST_RUN_001",
+            title="Testing Reinforcement Learning",
+            publication_year=2025,
+        )
+        session.add(paper)
+        session.commit()
+        session.refresh(paper)
 
-        print("Fallback query:", fallback_query)
+    return paper
 
 
-def test_complete_run():
-    with Session(engine) as session:
-        recommendation_service = RecommendationRunServices(session)
+# ------------------------------------------
+# TEST 1: START RUN
+# ------------------------------------------
 
-        # 1. Get or create a test paper
-        paper = session.exec(
-            select(Paper).where(
-                Paper.openalex_id == "W_TEST_RUN_001"
+def test_start_run(db_session):
+    session = db_session
+
+    user_id = get_test_user_id(session)
+
+    resolver = ResearchQueryServices(session)
+    service = RecommendationRunServices(session)
+
+    mode, query = resolver.resolve_query(
+        user_id=user_id,
+        prompt="Reinforcement Learning"
+    )
+
+    assert mode == RecommendationMode.TOPIC
+
+    run = service.start_run(
+        user_id=user_id,
+        mode=mode,
+        query=query,
+        algorithm_version="v1",
+    )
+
+    assert run.id is not None
+    assert run.user_id == user_id
+    assert run.query == "Reinforcement Learning"
+    assert run.status == RecommendationStatus.PENDING
+    assert run.algorithm_version == "v1"
+
+    fallback_mode, fallback_query = resolver.resolve_query(
+        user_id=user_id,
+        prompt=None
+    )
+
+    assert fallback_mode == RecommendationMode.PERSONALIZED
+    assert fallback_query == "Reinforcement Learning"
+
+    print(f"\nStarted run: {run.id}")
+
+
+# ------------------------------------------
+# TEST 2: COMPLETE RUN
+# ------------------------------------------
+
+def test_complete_run(db_session):
+    session = db_session
+
+    user_id = get_test_user_id(session)
+    paper = get_test_paper(session)
+
+    service = RecommendationRunServices(session)
+
+    run = service.start_run(
+        user_id=user_id,
+        mode=RecommendationMode.TOPIC,
+        query="Reinforcement Learning",
+    )
+
+    run_id = run.id
+    paper_id = paper.id
+
+    item = RecommendationItem(
+        run_id=run_id,
+        paper_id=paper_id,
+        rank=1,
+        relevance_score=0.95,
+        score_breakdown={
+            "semantic_similarity": 0.95
+        },
+        explanation="Highly relevant to the query"
+    )
+
+    completed = service.complete_run(
+        run_id=run_id,
+        items=[item]
+    )
+
+    assert completed.status == RecommendationStatus.COMPLETED
+    assert completed.completed_at is not None
+
+    # Clear cached ORM objects and read from DB
+    session.expunge_all()
+
+    saved_items = service.item_repository.get_by_run_id(
+        run_id
+    )
+
+    assert len(saved_items) == 1
+    assert saved_items[0].paper_id == paper_id
+    assert saved_items[0].rank == 1
+    assert saved_items[0].relevance_score == pytest.approx(0.95)
+
+    print(f"\nCompleted run: {run_id}")
+
+
+# ------------------------------------------
+# TEST 3: GET RUN WITH ITEMS
+# ------------------------------------------
+
+def test_get_run_with_items(db_session):
+    session = db_session
+
+    user_id = get_test_user_id(session)
+    paper = get_test_paper(session)
+
+    service = RecommendationRunServices(session)
+
+    run = service.start_run(
+        user_id=user_id,
+        mode=RecommendationMode.TOPIC,
+        query="Reinforcement Learning",
+    )
+
+    run_id = run.id
+    paper_id = paper.id
+
+    service.complete_run(
+        run_id=run_id,
+        items=[
+            RecommendationItem(
+                run_id=run_id,
+                paper_id=paper_id,
+                rank=1,
+                relevance_score=0.95,
+                score_breakdown={
+                    "semantic_similarity": 0.95
+                },
             )
-        ).first()
+        ]
+    )
 
-        if paper is None:
-            paper = Paper(
-                openalex_id="W_TEST_RUN_001",
-                title="Testing Reinforcement Learning",
-                publication_year=2025
-            )
+    # Remove cached objects to test eager loading
+    session.expunge_all()
 
-            session.add(paper)
-            session.commit()
-            session.refresh(paper)
+    saved_run = service.get_run_with_items(run_id)
 
-        # 2. Start a new recommendation run
-        run = recommendation_service.start_run(
-            user_id=USER_ID,
-            mode=RecommendationMode.TOPIC,
-            query="Reinforcement Learning",
-            algorithm_version="v1"
-        )
+    assert saved_run is not None
+    assert saved_run.status == RecommendationStatus.COMPLETED
 
-        assert run.id is not None
-        assert paper.id is not None
-        assert run.status == RecommendationStatus.PENDING
+    # Detach everything to verify eager loading worked
+    session.expunge_all()
 
-        print(f"\nStarted run: {run.id}")
+    ranked_items = sorted(
+        saved_run.items,
+        key=lambda item: item.rank
+    )
 
-        # 3. Create a recommendation item
-        item = RecommendationItem(
-            run_id=run.id,
-            paper_id=paper.id,
-            rank=1,
-            relevance_score=0.95,
-            score_breakdown={
-                "semantic_similarity": 0.95
-            },
-            explanation="Highly relevant to the query"
-        )
+    assert len(ranked_items) == 1
 
-        # 4. Complete the run
-        completed_run = recommendation_service.complete_run(
-            run_id=run.id,
-            items=[item]
-        )
+    item = ranked_items[0]
 
-        # 5. Verify the run's status
-        assert completed_run.status == RecommendationStatus.COMPLETED
-        assert completed_run.completed_at is not None
+    assert item.rank == 1
+    assert item.paper_id == paper_id
+    assert item.relevance_score == pytest.approx(0.95)
+    assert item.paper.title == "Testing Reinforcement Learning"
 
-        # 6. Retrieve saved recommendation items
-        saved_items = recommendation_service.item_repository.get_by_run_id(
-            run.id
-        )
-
-        # 7. Verify the recommendations
-        assert len(saved_items) == 1
-        assert saved_items[0].paper_id == paper.id
-        assert saved_items[0].rank == 1
-        assert saved_items[0].relevance_score == 0.95
-
-        print("Completed run:", completed_run.id)
-        print("Status:", completed_run.status)
-        print("Completed at:", completed_run.completed_at)
-        print("Saved items:", len(saved_items))
+    print(f"\nRetrieved run: {run_id}")
+    print("Paper:", item.paper.title)
+    print("Rank:", item.rank)
 
 
-if __name__ == "__main__":
-    test_start_run()
-    test_complete_run()
-    print("\nAll tests passed!")
+# ------------------------------------------
+# TEST 4: FAIL RUN
+# ------------------------------------------
+
+def test_fail_run(db_session):
+    session = db_session
+
+    user_id = get_test_user_id(session)
+
+    service = RecommendationRunServices(session)
+
+    run = service.start_run(
+        user_id=user_id,
+        mode=RecommendationMode.TOPIC,
+        query="Failed Research Search",
+    )
+
+    run_id = run.id
+
+    assert run.status == RecommendationStatus.PENDING
+
+    failed = service.fail_run(
+        run_id=run_id,
+        error_message="OpenAlex API request failed"
+    )
+
+    assert failed.status == RecommendationStatus.FAILED
+    assert failed.error_message == "OpenAlex API request failed"
+    assert failed.completed_at is not None
+
+    # Verify stored values rather than cached objects
+    session.expunge_all()
+
+    saved_run = service.get_run_with_items(run_id)
+
+    assert saved_run is not None
+    assert saved_run.status == RecommendationStatus.FAILED
+    assert saved_run.error_message == "OpenAlex API request failed"
+    assert len(saved_run.items) == 0
+
+    print(f"\nFailed run: {run_id}")

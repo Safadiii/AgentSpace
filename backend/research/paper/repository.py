@@ -166,6 +166,11 @@ class RecommendationRunRepository:
         )
 
         return list(self.session.exec(statement).all())
+    def get_with_items(self, run_id: int) -> RecommendationRun | None:
+        statement =  (select(RecommendationRun)
+                      .where(RecommendationRun.id == run_id)
+                      .options(selectinload(RecommendationRun.items).selectinload(RecommendationItem.paper)))
+        return self.session.exec(statement).one_or_none()
 
 class RecommendationItemRepository:
     def __init__(self, session: Session):
