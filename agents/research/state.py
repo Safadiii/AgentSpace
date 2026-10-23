@@ -1,5 +1,5 @@
 from pydantic import Field, BaseModel
-
+from backend.research.schemas import PaperCreate
 from core.models import AgentState
 
 class Paper(BaseModel):
@@ -26,4 +26,4 @@ class ResearchState(AgentState):
         default=10, le=10, ge=1
     )
 
-    papers: list[Paper] = Field(default_factory=list)
+    papers: list[PaperCreate] = Field(default_factory=list)

@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, ClassVar, Optional
 
-from sqlalchemy import CheckConstraint, Column, JSON, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, JSON, UniqueConstraint, Text
 from sqlalchemy.ext.mutable import MutableDict
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -116,7 +116,7 @@ class Paper(SQLModel, table=True):
     openalex_id: str = Field(unique=True, index=True, max_length=255)
     doi: str | None = Field(default=None, index=True, max_length=512)
     title: str = Field(max_length=2000)
-    abstract: str | None = Field(default=None)
+    abstract: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     publication_year: int | None = Field(default=None, index=True)
     publication_date: date | None = Field(default=None)
     venue: str | None = Field(default=None, max_length=1000)

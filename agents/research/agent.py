@@ -49,9 +49,9 @@ class ResearchAgent(BaseAgent[ResearchState]):
         ]
 
         for i, paper in enumerate(state.papers, start=1):
-            year = paper.year if paper.year is not None else "n.d."
+            year = paper.publication_year if paper.publication_year is not None else "n.d."
             lines.append(
-                f"{i}. {paper.title} ({year}) - {paper.url}"
+                f"{i}. {paper.title} ({year}) - {paper.landing_page_url}"
             )
 
         return {"result": "\n".join(lines)}

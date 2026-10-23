@@ -15,7 +15,7 @@ from fastapi import FastAPI
 # load_dotenv()
 
 # model = ChatNVIDIA (
-#     model="nvidia/nemotron-3-super-120b-a12b",
+#     model=os.environ["NVIDIA_MODEL"],
 #     api_key=os.environ["NVIDIA_API_KEY"],
 # )
 
@@ -37,9 +37,9 @@ async def main():
 
     for paper in result.papers:
         print(f"\nTitle: {paper.title}")
-        print(f"Authors: {', '.join(paper.authors)}")
-        print(f"Year: {paper.year}")
-        print(f"URL: {paper.url}")
+        print(f"Authors: {', '.join(author.author_name for author in paper.authors)}")
+        print(f"Year: {paper.publication_year}")
+        print(f"URL: {paper.landing_page_url}")
         print(f"Abstract: {paper.abstract}")
 
 if __name__ == "__main__":
