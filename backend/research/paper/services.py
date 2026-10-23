@@ -297,3 +297,31 @@ class RecommendationRunServices:
             raise ValueError("Invalid run ID")
 
         return self.repository.get_with_items(run_id)
+
+    def get_research_run(self, run_id: int):
+        with self.session as session:
+            service = RecommendationRunServices(session)
+            run = service.get_run_with_items(run_id)
+
+            if run is None:
+                raise ValueError(
+                    "Run not found"
+                )
+
+            items = sorted(run.items, key=lambda item: item.rank)
+
+            return {
+                "run_id": run.id,
+                "status": run.status,
+                "papers": [
+                    {
+                        "rank": item.rank,
+                        "id": item.paper.id,
+                        "title": item.paper.title,
+                        "abstract": item.paper.abstract,
+                        "openalex_id": item.paper.openalex_id,
+                    }
+                    for item in items
+                ],
+            }
+

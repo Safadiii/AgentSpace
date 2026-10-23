@@ -75,3 +75,19 @@ class PaperDetailedRead(SQLModel):
     topics: list[PaperTopicRead] = Field(
         default_factory=list
     )
+
+class ResearchPaperResponse(SQLModel):
+    rank: int
+    id: int
+    title: str
+    abstract: str | None = None
+    openalex_id: str
+
+
+class ResearchRunResponse(SQLModel):
+    run_id: int
+    status: str
+    papers: list[ResearchPaperResponse] = Field(
+        default_factory=list
+    )
+

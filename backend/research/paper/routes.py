@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from backend.init import get_session
-from backend.research.schemas import PaperRead, PaperCreate, PaperDetailedRead
-from backend.research.paper.services import PaperServices
+from backend.research.schemas import PaperRead, PaperCreate, PaperDetailedRead, ResearchRunResponse
+from backend.research.paper.services import PaperServices, RecommendationRunServices
 from typing import List
 
 
@@ -62,3 +62,18 @@ def get_detailed_papers(session: DBSession, limit: int = 20, offset: int = 0):
 def add_paper(data: PaperCreate, session: DBSession):
     service = PaperServices(session)
     return service.add_paper(data)
+
+@paper_router.get("/runs/{run_id}",response_model=ResearchRunResponse)
+def get_research_run(
+    run_id: int,
+    session: DBSession
+):
+    service = RecommendationRunServices(session)
+
+    try:
+        return service.get_research_run(run_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
