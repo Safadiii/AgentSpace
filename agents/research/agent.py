@@ -65,3 +65,12 @@ class ResearchAgent(BaseAgent[ResearchState]):
         graph.add_edge("prepare_query", "fetch_papers")
         graph.add_edge("fetch_papers", "prepare_results")
         graph.add_edge("prepare_results", END)
+
+    async def search(self, query: str, limit: int = 10, from_year: int | None = None):
+        result = await self.graph.ainvoke({
+            "request": query,
+            "limit": limit,
+            "from_year": from_year
+        })
+
+        return result["papers"]

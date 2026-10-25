@@ -6,6 +6,7 @@ import {
   Plus, Search, Send, Sparkles, X, Zap,
 } from 'lucide-react'
 import { api } from './api'
+import ResearchPage from './ResearchPage'
 import type { Agent, AgentId, AgentStatus, AgentTask, HubState } from './types'
 
 const agentIcons = { zeus: Crown, athena: BookOpen, hermes: Feather, hephaestus: Hammer }
@@ -52,6 +53,7 @@ function AgentPin({ agent, onOpen }: { agent: Agent; onOpen: (id: AgentId) => vo
 }
 
 export default function App() {
+  const [route, setRoute] = useState<'home' | 'research'>(() => window.location.pathname.startsWith('/research') ? 'research' : 'home')
   const [state, setState] = useState<HubState>(initial)
   const [isDemo, setIsDemo] = useState(false)
   const [selected, setSelected] = useState<AgentId | null>(null)
@@ -66,6 +68,27 @@ export default function App() {
   const commandRef = useRef<HTMLTextAreaElement>(null)
   const panelRef = useRef<HTMLTextAreaElement>(null)
   const [panelPrompt, setPanelPrompt] = useState('')
+
+  const openResearch = () => {
+    window.history.pushState(null, '', '/research')
+    setSelected(null)
+    setCommandOpen(false)
+    setRoute('research')
+    window.scrollTo(0, 0)
+  }
+  const returnHome = () => {
+    window.history.pushState(null, '', '/')
+    setRoute('home')
+    window.scrollTo(0, 0)
+  }
+
+  useEffect(() => {
+    const onPopState = () => {
+      setRoute(window.location.pathname.startsWith('/research') ? 'research' : 'home')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   const refresh = useCallback(async () => {
     const fresh = await api.state()
@@ -132,12 +155,15 @@ export default function App() {
   }
   const heroStyle = { '--hero-zoom': 1 + progress * 0.085, '--hero-shift': `${progress * 1.5}%`, '--hero-fade': Math.max(0, (progress - 0.62) / .38) } as CSSProperties
 
+  if (route === 'research') return <ResearchPage onBack={returnHome} />
+
   return (
     <div className="app-shell">
       <header className={`site-header ${atWorkspace ? 'site-header--solid' : ''}`}>
         <button className="command-trigger" type="button" onClick={() => { setSelected(null); setCommandOpen(true) }}>
           <Search size={17}/><span>Ask anything...</span><kbd><Command size={12}/> K</kbd>
         </button>
+        <button className="research-entry" type="button" onClick={openResearch}><BookOpen size={16}/> Research <ArrowUpRight size={14}/></button>
       </header>
 
       <main>
@@ -229,6 +255,7 @@ export default function App() {
           <div className="panel-main">
             <span className="panel-symbol">{(() => { const Icon = agentIcons[currentAgent.id]; return <Icon size={31} strokeWidth={1.25}/> })()}</span>
             <h2>{currentAgent.name}</h2><p className="panel-role">{currentAgent.role}</p><p className="panel-description">{currentAgent.description}</p>
+            {currentAgent.id === 'athena' && <button className="athena-research-link" type="button" onClick={openResearch}><BookOpen size={16}/> Open Research Library <ArrowRight size={16}/></button>}
             <div className="panel-rule"/>
             <div className="panel-status"><span className="overline">CURRENT STATE</span><span className={`status-label status-label--${currentAgent.status}`}><i/>{statusText[currentAgent.status]}</span></div>
             <div className="panel-current"><span className="overline">IN PROGRESS</span><p>{taskFor(state.tasks, currentAgent.id)?.title || (currentAgent.id === 'zeus' ? 'Ready to coordinate your next directive.' : 'Awaiting your next directive.')}</p></div>

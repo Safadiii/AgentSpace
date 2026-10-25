@@ -66,10 +66,7 @@ class OpenAlexClient:
         max_attempts = 4
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-
             for attempt in range(max_attempts):
-
-                # Respect semantic search rate limit
                 await wait_for_semantic_slot()
 
                 response = await client.get(
@@ -86,18 +83,15 @@ class OpenAlexClient:
                     remaining = response.headers.get(
                         "X-RateLimit-Remaining"
                     )
-
                     reset = response.headers.get(
                         "X-RateLimit-Reset"
                     )
-
                     logger.warning(
                         "OpenAlex 429: error=%s remaining=%s reset=%s",
                         error_data,
                         remaining,
                         reset,
                     )
-
                     if (
                         error_data.get("error") == "not_enough_credits"
                         or remaining == "0"
@@ -113,8 +107,6 @@ class OpenAlexClient:
                     retry_after = response.headers.get(
                         "Retry-After"
                     )
-
-                    # Backoff: 2, 4, 8 seconds
                     delay = 2 ** (attempt + 1)
 
                     if retry_after:

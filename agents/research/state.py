@@ -23,7 +23,7 @@ class ResearchState(AgentState):
     )
 
     limit: int = Field(
-        default=10, le=10, ge=1
+        default=10, le=50, ge=1
     )
 
     papers: list[PaperCreate] = Field(default_factory=list)
