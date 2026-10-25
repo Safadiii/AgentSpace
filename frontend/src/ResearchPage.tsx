@@ -20,6 +20,7 @@ import './css/research.css'
 
 type LibraryView = 'all' | 'saved' | `collection:${string}`
 type ResearchAction = 'summarize' | 'ask' | 'compare' | 'notes' | 'collection'
+type SortKey = 'newest' | 'oldest' | 'title'
 
 type Paper = {
   id: string
@@ -82,6 +83,8 @@ function toPaper(p: PaperRead, detail: PaperDetailedRead | undefined, prefs: Loc
   }
 }
 
+const yearOf = (p: Paper) => Number.parseInt(p.year, 10) || 0
+
 const runTerminalStatuses = new Set(['completed', 'complete', 'finished', 'success', 'done', 'succeeded', 'failed', 'error', 'cancelled', 'canceled'])
 
 const actionInfo: Record<ResearchAction, { label: string; description: string }> = {
@@ -126,7 +129,9 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   const [compareId, setCompareId] = useState('')
   const [notification, setNotification] = useState('')
   const [mobileLibrary, setMobileLibrary] = useState(false)
-  const [agentOpen, setAgentOpen] = useState(true)
+  // The agent is a side column on wide screens and a drawer on narrow ones; start it closed on narrow screens.
+  const [agentOpen, setAgentOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 1200)
+  const [sort, setSort] = useState<SortKey>('newest')
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { preferencesRef.current = preferences; writeJSON(PREFERENCES_KEY, preferences) }, [preferences])
@@ -261,7 +266,12 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     const matchesSearch = `${p.title} ${p.authors} ${p.tags.join(' ')} ${p.collection}`.toLowerCase().includes(search.toLowerCase().trim())
     const matchesView = view === 'all' || (view === 'saved' && p.saved) || (view.startsWith('collection:') && p.collection === view.slice(11))
     return matchesSearch && matchesView
-  }), [papers, search, view])
+  }).sort((a, b) => {
+    if (sort === 'title') return a.title.localeCompare(b.title)
+    const ya = yearOf(a), yb = yearOf(b)
+    if (!ya || !yb) return ya ? -1 : yb ? 1 : 0
+    return sort === 'oldest' ? ya - yb : yb - ya
+  }), [papers, search, view, sort])
   const savedCount = papers.filter(p => p.saved).length
   const otherPapers = papers.filter(p => p.id !== selected?.id)
   const compared = otherPapers.find(p => p.id === compareId) ?? otherPapers[0]
@@ -328,6 +338,21 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     setAction(next)
   }
 
+  const showAgent = selected !== null
+  const layoutClass = !showAgent ? 'research-layout' : agentOpen ? 'research-layout research-layout--agent' : 'research-layout research-layout--agent-collapsed'
+  const countText = loading && papers.length === 0
+    ? 'Loading papers…'
+    : search.trim()
+      ? `${filtered.length} ${filtered.length === 1 ? 'result' : 'results'} for “${search.trim()}”`
+      : `${filtered.length} ${filtered.length === 1 ? 'paper' : 'papers'}`
+  const agentActions = [
+    { key: 'summarize', icon: Sparkles, subtitle: 'A concise, structured overview' },
+    { key: 'ask', icon: MessageCircle, subtitle: 'Explore ideas and ask questions' },
+    { key: 'compare', icon: Compass, subtitle: 'Differences and overlaps' },
+    { key: 'notes', icon: NotebookPen, subtitle: 'Methods and key findings' },
+    { key: 'collection', icon: FolderPlus, subtitle: 'Organize in your library' },
+  ] as const
+
   return (
     <div className="research-os">
       <div className="research-scene" aria-hidden="true" />
@@ -340,7 +365,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
         </button>
         <div className="research-global-search">
           <Search size={17} strokeWidth={1.8} />
-          <Input ref={searchRef} aria-label="Search papers" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search your research library..." className="research-search-input" />
+          <Input ref={searchRef} aria-label="Search your library" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search your research library..." className="research-search-input" />
           <kbd><Command size={12} /> K</kbd>
         </div>
         <div className="research-header-right">
@@ -348,15 +373,9 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
         </div>
       </header>
 
-      <main className={agentOpen ? 'research-layout' : 'research-layout research-layout--agent-collapsed'}>
-        <aside className={`research-library research-surface ${mobileLibrary ? 'research-library--open' : ''}`}>
-          <div className="research-library-heading">
-            <div><span className="research-eyebrow">YOUR RESEARCH</span><h2>My Library</h2></div>
-            <div className="research-api-actions">
-              <Button type="button" variant="ghost" className="research-circle-button" title="Refresh papers" aria-label="Refresh papers" onClick={() => void loadPapers(0)}><RefreshCw size={15}/></Button>
-              <Button type="button" variant="ghost" className="research-circle-button" title="Add paper" aria-label="Add paper" onClick={() => setAddOpen(true)}><Plus size={17}/></Button>
-            </div>
-          </div>
+      <main className={layoutClass}>
+        <aside className={`research-library research-surface ${mobileLibrary ? 'research-library--open' : ''}`} aria-label="Library navigation">
+          <div className="research-library-heading"><h2>Library</h2></div>
           <nav className="research-nav" aria-label="Research library">
             <button type="button" className={view === 'all' ? 'research-nav-row active' : 'research-nav-row'} onClick={() => chooseView('all')}><BookOpen size={17}/> All Papers <span>{papers.length}</span></button>
             <button type="button" className={view === 'saved' ? 'research-nav-row active' : 'research-nav-row'} onClick={() => chooseView('saved')}><Bookmark size={17}/> Saved <span>{savedCount}</span></button>
@@ -364,17 +383,17 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
           <Separator className="research-rule" />
           <div className="research-collection-title"><span>COLLECTIONS</span><button type="button" className="research-collection-add" aria-label="Add collection" title="Add collection" onClick={() => setNewCollectionOpen(true)}><Plus size={15}/></button></div>
           <div className="research-collections">
-            {collections.map(name => <button type="button" key={name} className={view === `collection:${name}` ? 'research-collection active' : 'research-collection'} onClick={() => chooseView(`collection:${name}`)}><Folder size={15}/><span>{name}</span><small>{papers.filter(p => p.collection === name).length}</small></button>)}
+            {collections.length === 0
+              ? <button type="button" className="research-collection-empty" onClick={() => setNewCollectionOpen(true)}><FolderPlus size={15}/> Create your first collection</button>
+              : collections.map(name => <button type="button" key={name} className={view === `collection:${name}` ? 'research-collection active' : 'research-collection'} onClick={() => chooseView(`collection:${name}`)}><Folder size={15}/><span>{name}</span><small>{papers.filter(p => p.collection === name).length}</small></button>)}
           </div>
-          <div className="research-library-bottom"><span className="research-green-dot"/> Live FastAPI library <span>·</span> Bookmarks and collections stay in this browser</div>
+          <div className="research-library-bottom" title="Connected to the research API. Bookmarks and collections are stored in this browser."><span className="research-green-dot"/> Connected</div>
         </aside>
 
         <section className="research-content research-surface" aria-label={selected ? 'Selected paper details' : 'Paper list'}>
           <div className={selected ? 'research-content-crumb' : 'research-content-crumb research-content-crumb--list'}>
             <div className="research-content-left"><Button type="button" variant="ghost" size="sm" className="research-mobile-library-button" onClick={() => setMobileLibrary(v => !v)}><BookOpen size={15}/> Library <ChevronDown size={14}/></Button>
-              {selected
-                ? <button type="button" className="research-back" onClick={() => setSelectedId(null)}><ArrowLeft size={14}/> {viewTitle.toUpperCase()}</button>
-                : <span className="research-desktop-crumb">LIBRARY <span>/</span> {viewTitle.toUpperCase()}</span>}
+              {selected && <button type="button" className="research-back" onClick={() => setSelectedId(null)}><ArrowLeft size={14}/> {viewTitle.toUpperCase()}</button>}
             </div>
           </div>
           {selected ? <>
@@ -392,44 +411,56 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
             </div>
             <div className="research-source-footer"><span><BookText size={15}/> Paper information</span><button type="button" onClick={() => chooseAction('summarize')}>Ask the Research Agent <ArrowRight size={15}/></button></div>
           </> : <div className="research-list-view">
-            <div className="research-list-title"><span className="research-eyebrow">{search.trim() ? 'SEARCH RESULTS · LOADED PAPERS' : 'YOUR RESEARCH'}</span><h1>{viewTitle}</h1><p>{loading ? 'Loading papers…' : `${filtered.length} ${filtered.length === 1 ? 'paper' : 'papers'} shown`}</p></div>
-            {libraryError && <div className="research-api-error" role="alert">{libraryError}<Button type="button" variant="outline" size="sm" onClick={() => void loadPapers(0)}>Retry</Button></div>}
-            {researchRun && <div className="research-run-banner"><div><Sparkles size={17}/><span>Research run #{researchRun.run_id} · {researchRun.status} · {researchRun.papers?.length ?? 0} results</span></div><Button type="button" variant="ghost" size="sm" disabled={runLoading} onClick={() => void fetchRun(researchRun.run_id)}><RefreshCw size={14}/> Check status</Button></div>}
-            <div className="research-card-list">
-              {filtered.map(p => <button key={p.id} type="button" className="research-paper-card" onClick={() => openPaper(p.id)}>
-                <span className="research-paper-icon"><BookText size={25} strokeWidth={1.5}/></span>
-                <span className="research-paper-row-details">
-                  <strong>{p.title}</strong>
-                  <small>{p.authors} <span>·</span> {p.year}{p.collection && <><span>·</span> {p.collection}</>}</small>
-                  <span className="research-paper-tags">{p.tags.slice(0, 3).map(t => <i key={t}>{t}</i>)}</span>
-                </span>
-                <ArrowRight size={16} className="research-action-arrow"/>
-              </button>)}
-              {!loading && filtered.length === 0 && !libraryError && <div className="research-empty-list">{papers.length === 0 ? 'No papers saved in your research database yet.' : 'No matching papers among those loaded.'}<button type="button" onClick={() => { chooseView('all'); setSearch('') }}>Show all papers</button></div>}
-              {hasMore && !search.trim() && <div className="research-api-pagination"><Button type="button" variant="outline" disabled={loadingMore || loading} onClick={() => void loadPapers(papers.length)}>{loadingMore ? 'Loading…' : 'Load more papers'}</Button></div>}
+            <div className="research-list-header">
+              <h1>{viewTitle}</h1>
+              <div className="research-list-actions">
+                <Button type="button" variant="ghost" className="research-icon-button" title="Refresh papers" aria-label="Refresh papers" disabled={loading} onClick={() => void loadPapers(0)}><RefreshCw size={15}/></Button>
+                <Button type="button" variant="outline" className="research-secondary-button" onClick={() => setAddOpen(true)}><Plus size={15}/> Add paper</Button>
+                <Button type="button" className="research-primary-button" onClick={() => setResearchOpen(true)}><Sparkles size={15}/> New research</Button>
+              </div>
+            </div>
+            {libraryError && <div className="research-api-error" role="alert"><span>{libraryError}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => void loadPapers(0)}>Retry</Button></div>}
+            {researchRun && <div className="research-run-banner" role="status"><div><span className={`research-run-dot research-run-dot--${runTerminalStatuses.has(researchRun.status.toLowerCase()) ? 'done' : 'live'}`}/><span>Research #{researchRun.run_id} · <b>{researchRun.status}</b> · {researchRun.papers?.length ?? 0} {(researchRun.papers?.length ?? 0) === 1 ? 'paper' : 'papers'}</span></div><Button type="button" variant="ghost" size="sm" className="research-banner-button" disabled={runLoading} onClick={() => void fetchRun(researchRun.run_id)}><RefreshCw size={13}/> Check status</Button></div>}
+            <div className="research-list-toolbar">
+              <span>{countText}</span>
+              <select className="research-sort" aria-label="Sort papers" value={sort} onChange={e => setSort(e.target.value as SortKey)}>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="title">Title A–Z</option>
+              </select>
+            </div>
+            <div className="research-paper-list">
+              {loading && papers.length === 0
+                ? Array.from({ length: 6 }, (_, i) => <div className="research-skeleton-row" key={i} aria-hidden="true"><span className="research-skeleton research-skeleton--icon"/><span className="research-skeleton-lines"><span className="research-skeleton research-skeleton--title"/><span className="research-skeleton research-skeleton--meta"/></span></div>)
+                : filtered.map(p => {
+                  const shown = p.tags.slice(0, 2)
+                  const extra = p.tags.length - shown.length
+                  return <button key={p.id} type="button" className="research-paper-row" onClick={() => openPaper(p.id)}>
+                    <span className="research-paper-icon"><BookText size={18} strokeWidth={1.5}/></span>
+                    <span className="research-paper-row-details">
+                      <strong>{p.title}</strong>
+                      <small>{p.authors} <span>·</span> {p.year}{p.collection && <><span>·</span> {p.collection}</>}</small>
+                    </span>
+                    <span className="research-paper-tags">{shown.map(t => <i key={t}>{t}</i>)}{extra > 0 && <i className="research-paper-tags-more">+{extra}</i>}</span>
+                    <ArrowRight size={16} className="research-action-arrow"/>
+                  </button>
+                })}
+              {!loading && filtered.length === 0 && !libraryError && <div className="research-empty-list">{papers.length === 0 ? 'Your library is empty. Add a paper or start a new research.' : 'No matching papers among those loaded.'}<button type="button" onClick={() => { chooseView('all'); setSearch('') }}>Show all papers</button></div>}
+              {hasMore && !search.trim() && <div className="research-api-pagination"><Button type="button" variant="outline" className="research-secondary-button" disabled={loadingMore || loading} onClick={() => void loadPapers(papers.length)}>{loadingMore ? 'Loading…' : 'Load more papers'}</Button></div>}
             </div>
           </div>}
         </section>
 
-        <aside className={agentOpen ? 'research-companion research-surface' : 'research-companion research-companion--collapsed research-surface'} aria-label="Research Agent">
+        {showAgent && <aside className={agentOpen ? 'research-companion research-surface' : 'research-companion research-companion--collapsed research-surface'} aria-label="Research Agent">
           {agentOpen ? <>
-          <div className="research-companion-heading"><span className="research-ai-mark"><Sparkles size={20} strokeWidth={1.4}/></span><div><h2>Research Agent</h2><p>Powered by Athena · Backend-connected library</p></div><Button type="button" variant="ghost" size="icon" className="research-agent-toggle" aria-label="Collapse Research Agent" title="Collapse" onClick={() => setAgentOpen(false)}><PanelRightClose size={18}/></Button></div>
-          <div className="research-companion-copy">{selected ? 'Your tools, right where you need them.' : 'Open a paper to use the agent.'}</div>
+          <div className="research-companion-heading"><span className="research-ai-mark"><Sparkles size={18} strokeWidth={1.5}/></span><div><h2>Research Agent</h2><p>Powered by Athena</p></div><Button type="button" variant="ghost" size="icon" className="research-agent-toggle" aria-label="Collapse Research Agent" title="Collapse" onClick={() => setAgentOpen(false)}><PanelRightClose size={18}/></Button></div>
           <div className="research-action-list">
-            <button className="research-agent-action research-agent-action--discover" type="button" onClick={() => setResearchOpen(true)}><span className="research-agent-icon"><Search size={18} strokeWidth={1.65}/></span><span><strong>Start new research</strong><small>Let Athena discover and save papers</small></span><ArrowRight size={16} className="research-action-arrow"/></button>
-            {([
-              { key: 'summarize', icon: Sparkles, subtitle: 'A concise, structured overview' },
-              { key: 'ask', icon: MessageCircle, subtitle: 'Explore ideas and ask questions' },
-              { key: 'compare', icon: Compass, subtitle: 'Explore differences and overlaps' },
-              { key: 'notes', icon: NotebookPen, subtitle: 'Capture methods and key findings' },
-              { key: 'collection', icon: FolderPlus, subtitle: 'Organize in your library' },
-            ] as const).map(({ key, icon: Icon, subtitle }) => <button key={key} className="research-agent-action" type="button" disabled={!selected} onClick={() => chooseAction(key)}><span className="research-agent-icon"><Icon size={18} strokeWidth={1.65}/></span><span><strong>{actionInfo[key].label}</strong><small>{subtitle}</small></span><ArrowRight size={16} className="research-action-arrow"/></button>)}
+            {agentActions.map(({ key, icon: Icon, subtitle }) => <button key={key} className="research-agent-action" type="button" onClick={() => chooseAction(key)}><span className="research-agent-icon"><Icon size={16} strokeWidth={1.65}/></span><span><strong>{actionInfo[key].label}</strong><small>{subtitle}</small></span><ArrowRight size={15} className="research-action-arrow"/></button>)}
           </div>
           <Separator className="research-rule" />
-          {selected && <div className="research-paper-details"><span className="research-aside-eyebrow">PAPER DETAILS</span><div><FileText size={16}/><span>{selected?.year || '—'} publication year</span></div><div><Folder size={16}/><span>{selected?.collection || 'No collection (local)'}</span></div></div>}
-          <div className="research-companion-footer"><span className="research-quiet-symbol">✦</span> Focused knowledge, calmly organized.</div>
-          </> : <button type="button" className="research-agent-rail" aria-label="Expand Research Agent" title="Expand Research Agent" onClick={() => setAgentOpen(true)}><PanelRightOpen size={18}/><span className="research-ai-mark"><Sparkles size={18} strokeWidth={1.4}/></span><span className="research-agent-rail-label">Research Agent</span></button>}
-        </aside>
+          {selected && <div className="research-paper-details"><span className="research-aside-eyebrow">PAPER DETAILS</span><div><FileText size={16}/><span>{selected.year || '—'} publication year</span></div><div><Folder size={16}/><span>{selected.collection || 'No collection'}</span></div></div>}
+          </> : <button type="button" className="research-agent-rail" aria-label="Expand Research Agent" title="Expand Research Agent" onClick={() => setAgentOpen(true)}><PanelRightOpen size={18}/><span className="research-ai-mark"><Sparkles size={16} strokeWidth={1.5}/></span><span className="research-agent-rail-label">Research Agent</span></button>}
+        </aside>}
       </main>
 
       <footer className="research-footer"><span>OLYMPUS / ATHENA</span><span>Research, in harmony.</span><button type="button" onClick={onBack}><ArrowLeft size={14}/> Return to Olympus</button></footer>
