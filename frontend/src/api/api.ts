@@ -1,4 +1,4 @@
-import type { AgentId, HubState, AgentTask, ActivityEvent } from './types'
+import type { AgentId, HubState, AgentTask, ActivityEvent } from '../types'
 
 const KEY = 'olympus-demo-v1'
 let demoMode = false

@@ -240,3 +240,65 @@
 .research-list-title h1 {font-size:clamp(34px,2.8vw,46px);margin:6px 0 4px;}
 @media(max-width:1080px){.research-companion {height:auto;overflow:visible;}}
 @media(max-width:720px){.research-library,.research-content,.research-companion {height:auto;overflow:visible;}.research-content-crumb--list {margin-bottom:14px;}.research-content-crumb--list .research-content-left {min-height:0;}}
+
+/* ---- API-driven UI (merged from research-api.css) ---- */
+.research-library-heading .research-api-actions { display:flex; gap:7px; align-items:center; }
+.research-api-error { padding:13px 14px; margin-bottom:15px; border:1px solid #e8c9bf; background:#fff6f2; color:#985b4e; border-radius:13px; display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; }
+.research-run-banner { padding:12px 14px; border:1px solid #d9e6ef; background:rgba(237,245,250,.8); color:#446b88; border-radius:13px; display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; }
+.research-run-banner>div { display:flex; align-items:center; gap:10px; }
+.research-run-banner [data-slot="button"] { color:#4b7795; font-size:11px; }
+.research-api-pagination { text-align:center; padding:22px 0 6px; }
+.research-api-pagination [data-slot="button"] { border:1px solid #d9e5ed; background:rgba(255,255,255,.7); color:#4b7795; font-size:11px; border-radius:20px; }
+.research-bookmark-toggle { display:inline-flex; align-items:center; gap:7px; color:#6f8ba2; font-size:11px; white-space:nowrap; }
+.research-bookmark-toggle:hover { color:#2d5577; }
+
+/* Discovery action in the Research Agent menu */
+.research-agent-action--discover { background:#eaf2fa; border-color:#d3e4ef; }
+.research-agent-action--discover:hover { background:#e1edf8; border-color:#bcd5e6; }
+.research-agent-action--discover .research-agent-icon { background:#2e597a; color:#fff; }
+.research-agent-action:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+
+/* New research dialog fields */
+.research-field { display:flex; flex-direction:column; gap:7px; min-width:0; }
+.research-form-row { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:12px; }
+.research-form input:focus-visible,.research-dialog-textarea:focus-visible,.research-dialog-select:focus-visible { border-color:#a9c6db!important; box-shadow:0 0 0 3px rgba(94,134,163,.14)!important; }
+.research-dialog-textarea::placeholder { color:#a4b5c2; }
+
+@media(max-width:430px){ .research-form-row { grid-template-columns:1fr; } }
+
+/* ---- Dialog positioning (Base UI portal) ----
+   Make the dialogs independent of utility-class generation: the popup is a fixed,
+   centered, scrollable card and the overlay always covers the viewport. */
+[data-slot="dialog-overlay"] { position:fixed; inset:0; z-index:90; background:rgba(28,52,72,.22); backdrop-filter:blur(3px); }
+.research-dialog { position:fixed; z-index:100; top:50%; left:50%; translate:-50% -50%; width:min(510px, calc(100% - 32px)); max-height:calc(100svh - 32px); overflow-y:auto; display:flex; flex-direction:column; gap:0; box-sizing:border-box; }
+.research-dialog [data-slot="dialog-header"] { display:flex; flex-direction:column; gap:8px; }
+.research-dialog [data-slot="dialog-footer"] { margin:17px 0 0; padding:0; border:0; background:transparent; border-radius:0; display:flex; flex-direction:row; justify-content:flex-end; gap:8px; }
+.research-dialog [data-slot="dialog-close"] { top:16px; right:16px; color:#6f8ba2; }
+
+/* ---- Dialog polish: header rhythm, fields, buttons ---- */
+.research-dialog { padding:32px 32px 28px!important; }
+.research-dialog [data-slot="dialog-header"] { gap:0; padding-right:28px; }
+.research-dialog .research-dialog-icon { margin:0 0 18px; }
+.research-dialog [data-slot="dialog-title"] { margin:0; font-size:32px; line-height:1.1; font-weight:550; color:#244762; }
+.research-dialog [data-slot="dialog-description"] { margin:10px 0 0; font-size:12px; line-height:1.7; color:#8ea2b1; }
+.research-form,.research-action-form { gap:16px; margin-top:24px; }
+.research-field { gap:8px; }
+.research-form label,.research-action-form label { font-size:11px; line-height:1; color:#617e94; font-weight:650; letter-spacing:.02em; }
+.research-form-row { gap:14px; }
+.research-dialog-textarea { min-height:104px; }
+.research-form input::placeholder,.research-action-form input::placeholder { color:#a4b5c2; }
+.research-dialog [data-slot="dialog-footer"] { margin-top:10px; padding-top:20px; border-top:1px solid var(--research-line, rgba(73,111,143,.13)); gap:10px; align-items:center; }
+.research-dialog [data-slot="button"] { height:40px; padding:0 20px; gap:8px; border-radius:11px; font-size:12px; font-weight:650; letter-spacing:.01em; transition:background .2s,border-color .2s,color .2s,box-shadow .2s; }
+.research-dialog [data-slot="button"]:not([data-variant="ghost"]) { background:#2e597a; color:#fff; border:1px solid #2e597a; box-shadow:0 4px 14px rgba(46,89,122,.22); }
+.research-dialog [data-slot="button"]:not([data-variant="ghost"]):hover:not(:disabled) { background:#285474; border-color:#285474; }
+.research-dialog [data-slot="button"]:not([data-variant="ghost"]):disabled { opacity:.45; box-shadow:none; cursor:not-allowed; }
+.research-dialog [data-slot="button"][data-variant="ghost"] { background:#fff; color:#5d7890; border:1px solid #e0e9ef; box-shadow:none; }
+.research-dialog [data-slot="button"][data-variant="ghost"]:hover { background:#f2f7fb; border-color:#cfe0eb; color:#2d5577; }
+.research-dialog [data-slot="dialog-close"] { top:20px; right:20px; width:34px; height:34px; padding:0; border-radius:50%; background:transparent; border:1px solid transparent; color:#7c9cb5; box-shadow:none; }
+.research-dialog [data-slot="dialog-close"]:hover { background:#edf3f8; color:#275575; }
+@media(max-width:430px){ .research-dialog { padding:24px 20px 22px!important; } .research-dialog [data-slot="dialog-title"] { font-size:28px; } .research-dialog [data-slot="dialog-footer"] { flex-direction:column-reverse; align-items:stretch; } }
+
+/* Close button: pin to the top-right corner of the dialog */
+.research-dialog .research-dialog-close,
+.research-dialog [data-slot="dialog-close"] { position:absolute!important; top:20px!important; right:20px!important; bottom:auto!important; left:auto!important; width:34px!important; height:34px!important; min-width:34px!important; padding:0!important; display:inline-grid!important; place-items:center; border-radius:50%!important; }
+.research-dialog [data-slot="dialog-close"] svg { width:16px; height:16px; }

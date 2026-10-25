@@ -5,7 +5,7 @@ import {
   CircleDot, Command, Crown, Feather, Hammer, Layers3, Pause, Play,
   Plus, Search, Send, Sparkles, X, Zap,
 } from 'lucide-react'
-import { api } from './api'
+import { api } from './api/api'
 import ResearchPage from './ResearchPage'
 import type { Agent, AgentId, AgentStatus, AgentTask, HubState } from './types'
 

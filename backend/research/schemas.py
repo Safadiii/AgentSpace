@@ -36,6 +36,7 @@ class PaperRead(SQLModel):
     openalex_id: str
     title: str
     doi: str | None = None
+    abstract: str | None = None
     publication_year: int | None = None
 
 class PaperAuthorCreate(SQLModel):
@@ -66,6 +67,7 @@ class PaperDetailedRead(SQLModel):
     id: int
     openalex_id: str
     title: str
+    abstract: str | None = None
     publication_year: int | None = None
 
     authors: list[PaperAuthorRead] = Field(
