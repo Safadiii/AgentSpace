@@ -49,7 +49,6 @@ export interface PaperCreate {
 }
 
 export interface ResearchRequest {
-  user_id: number
   prompt: string
   paper_count?: number
   exploration_agents?: number
@@ -74,7 +73,6 @@ export type PaperAction =
   | 'READ' | 'OPEN' | 'SKIP'
 
 export interface PaperInteractionCreate {
-  user_id: number
   action: PaperAction
   recommendation_item_id?: number | null
   source_agent?: string
@@ -83,7 +81,6 @@ export interface PaperInteractionCreate {
 
 export interface PaperInteractionRead {
   id: number
-  user_id: number
   paper_id: number
   recommendation_item_id: number | null
   action: PaperAction
@@ -91,7 +88,6 @@ export interface PaperInteractionRead {
 }
 
 export interface PaperImpressionCreate {
-  user_id: number
   source_agent?: string
   recommendation_item_id?: number | null
   interaction_metadata?: Record<string, unknown>
@@ -99,12 +95,18 @@ export interface PaperImpressionCreate {
 
 export interface PaperImpressionRead {
   id: number
-  user_id: number
   paper_id: number
   recommendation_item_id: number | null
   action: string
   recorded: boolean
   created_at: string
+}
+
+export interface PaperStateRead {
+  paper_id: number
+  liked: boolean
+  saved: boolean
+  disliked: boolean
 }
 
 async function call<T>(path: string, options?: RequestInit): Promise<T> {
@@ -145,4 +147,6 @@ export const researchApi = {
     call<PaperInteractionRead>(`/papers/${paperId}/interactions`, {
       method: 'POST', body: JSON.stringify({ ...impression, action: 'IMPRESSION' }),
     }),
+    paperState: (paper_id: number, signal?: AbortSignal) =>
+      call<PaperStateRead>(`/papers/${paper_id}/interactions`, { signal}),
 }

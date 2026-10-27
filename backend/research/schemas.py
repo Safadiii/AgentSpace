@@ -106,7 +106,6 @@ class ResearchRunResponse(SQLModel):
 
 
 class PaperInteractionCreate(SQLModel):
-    user_id: int = Field(ge=1)
     recommendation_item_id: int | None = Field(default=None, ge=1)
     source_agent: str = Field(default="research", min_length=1, max_length=100)
     action: PaperAction
@@ -129,4 +128,3 @@ class PaperStateRead(SQLModel):
     disliked: bool = False
     saved: bool = False
 
-    

@@ -84,12 +84,11 @@ def get_research_run(
 )
 def get_paper_state(
     paper_id: int,
-    user_id: int,
     session: DBSession
 ):
     service = PaperInteractionServices(session)
 
-    return service.get_paper_status(user_id, paper_id)
+    return service.get_paper_status(paper_id)
 
 @paper_router.post(
     "/papers/{paper_id}/interactions",
@@ -104,7 +103,6 @@ def record_paper_interaction(
 
     try:
         return service.record_interaction(
-            user_id=data.user_id,
             paper_id=paper_id,
             action=data.action,
             recommendation_item_id=data.recommendation_item_id,

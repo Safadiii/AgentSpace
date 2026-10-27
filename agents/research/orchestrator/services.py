@@ -65,10 +65,10 @@ class ResearchOrchestrator:
             resolver = ResearchQueryServices(session)
             run_service = RecommendationRunServices(session)
 
-            mode, topic = resolver.resolve_query(user_id, prompt)
+            mode, topic = resolver.resolve_query(prompt)
 
             run = run_service.start_run(
-                user_id, mode, topic, algorithm_version="v1"
+               mode, topic, algorithm_version="v1"
             )
 
             run_id = run.id

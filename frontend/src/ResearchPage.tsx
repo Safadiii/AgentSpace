@@ -15,7 +15,7 @@ import {
   DialogHeader, DialogTitle,
 } from './components/ui/dialog'
 import { researchApi } from './api/researchApi'
-import type { PaperRead, PaperDetailedRead, ResearchRunResponse } from './api/researchApi'
+import type { PaperRead, PaperDetailedRead, ResearchRunResponse, PaperStateRead } from './api/researchApi'
 import './css/research.css'
 import ResearchResultsModal from './components/research/ResearchResultsModal'
 import PaperFeedbackActions from './components/research/PaperFeedbackActions'
@@ -24,8 +24,6 @@ import type { PaperAction } from './api/researchApi'
 type LibraryView = 'all' | 'saved' | `collection:${string}`
 type ResearchAction = 'summarize' | 'ask' | 'compare' | 'notes' | 'collection'
 type SortKey = 'newest' | 'oldest' | 'title'
-type PaperRating = 'LIKE' | 'DISLIKE'
-const FEEDBACK_CACHE_PREFIX = 'olympus:research-feedback:v1'
 
 type Paper = {
   id: string
@@ -34,7 +32,7 @@ type Paper = {
   year: string
   abstract: string
   tags: string[]
-  saved: boolean // Local bookmark; backend has no favorites endpoint.
+  saved: boolean // Synced from interactions when a paper is opened; library-wide sync comes later.
   collection: string // Browser-only until a collection API is added.
   sourceUrl?: string
   addedAt: string
@@ -119,7 +117,6 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   const [adding, setAdding] = useState(false)
   const [researchOpen, setResearchOpen] = useState(false)
   const [researchPrompt, setResearchPrompt] = useState('')
-  const [researchUserId, setResearchUserId] = useState(import.meta.env.VITE_RESEARCH_USER_ID ?? '')
   const [paperCount, setPaperCount] = useState(5)
   const [startingResearch, setStartingResearch] = useState(false)
   const [researchRun, setResearchRun] = useState<ResearchRunResponse | null>(null)
@@ -144,19 +141,18 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   // The agent is a side column on wide screens and a drawer on narrow ones; start it closed on narrow screens.
   const [agentOpen, setAgentOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 1200)
   const [sort, setSort] = useState<SortKey>('newest')
-  const [paperRatings, setPaperRatings] = useState<Record<string, PaperRating>>({})
+  const [selectedPaperState, setSelectedPaperState] = useState<{ paperId: string; state: PaperStateRead } | null>(null)
+  const [paperStateLoading, setPaperStateLoading] = useState(false)
+  const [paperStateError, setPaperStateError] = useState('')
+  const [paperStateRevision, setPaperStateRevision] = useState(0)
   const [feedbackBusy, setFeedbackBusy] = useState<PaperAction | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const userNumber = Number(researchUserId)
-  const activeUserId = Number.isInteger(userNumber) && userNumber > 0 ? userNumber : null
 
-  // Client-side display cache until the backend exposes GET /users/{id}/interactions.
-  useEffect(() => {
-    setPaperRatings(activeUserId === null ? {} : readJSON<Record<string, PaperRating>>(
-      `${FEEDBACK_CACHE_PREFIX}:${activeUserId}`, {}
-    ))
-  }, [activeUserId])
+  // Never display one user's or paper's feedback while another paper is selected.
+  const displayedPaperState = selectedPaperState?.paperId === selectedId
+    ? selectedPaperState.state
+    : null
 
   useEffect(() => { preferencesRef.current = preferences; writeJSON(PREFERENCES_KEY, preferences) }, [preferences])
   useEffect(() => { abstractsRef.current = abstracts; writeJSON(ABSTRACTS_KEY, abstracts) }, [abstracts])
@@ -204,6 +200,37 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     }).catch(() => { /* Enrichment is optional; basic paper data remains visible. */ })
     return () => controller.abort()
   }, [selectedId])
+
+  // A selected paper's rating and saved state are read from FastAPI, not the browser cache.
+  useEffect(() => {
+    setSelectedPaperState(null)
+    setPaperStateError('')
+
+    if (!selectedId) {
+      setPaperStateLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    setPaperStateLoading(true)
+
+    void researchApi.paperState(Number(selectedId), controller.signal)
+      .then(state => {
+        if (controller.signal.aborted) return
+        setSelectedPaperState({ paperId: selectedId, state })
+        // Keep the current library row in sync, too. A bulk API will handle every row later.
+        updatePaper(selectedId, { saved: state.saved })
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return
+        setPaperStateError(error instanceof Error ? error.message : 'Could not load paper feedback.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPaperStateLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [selectedId, paperStateRevision])
 
   const fetchRun = useCallback(async (id: number) => {
     setRunLoading(true)
@@ -255,9 +282,8 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
 
   async function launchResearch(event: { preventDefault(): void }) {
     event.preventDefault()
-    const userId = Number(researchUserId)
-    if (!Number.isInteger(userId) || userId < 1 || !researchPrompt.trim()) {
-      setNotification('Enter a valid user ID and a research topic.')
+    if (!researchPrompt.trim()) {
+      setNotification('Enter a research topic.')
       return
     }
     // The request takes ~30s, so close the dialog right away and let it run in the background.
@@ -270,7 +296,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     setResearchPrompt('')
     setNotification("Research started. We'll let you know when it's ready.")
     try {
-      const result = await researchApi.search({ user_id: userId, prompt, paper_count: paperCount })
+      const result = await researchApi.search({ prompt, paper_count: paperCount })
       setResearchRun({ run_id: result.run_id, status: 'pending', papers: [] })
       void loadPapers(0)
       await fetchRun(result.run_id) // Announces completion with a toast if the run is already done.
@@ -325,35 +351,30 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     setPreferences(next)
   }
 
-  // Only update the UI after FastAPI confirms the event was stored.
+  // Submit the event, then re-read the derived state from FastAPI.
   async function submitPaperAction(paperId: string, action: PaperAction) {
-    if (activeUserId === null) {
-      setNotification('Set a backend user ID in New research (or VITE_RESEARCH_USER_ID) first.')
-      return
-    }
-    if (feedbackBusy !== null) return
-    const paper = papers.find(item => item.id === paperId)
-    if (!paper) return
+    if (feedbackBusy !== null || paperStateLoading || !displayedPaperState || selectedId !== paperId) return
 
     setFeedbackBusy(action)
     try {
       await researchApi.interaction(Number(paperId), {
-        user_id: activeUserId,
         action,
         source_agent: 'research',
         interaction_metadata: { surface: 'paper_details' },
       })
 
-      if (action === 'LIKE' || action === 'DISLIKE') {
-        const key = `${FEEDBACK_CACHE_PREFIX}:${activeUserId}`
-        const updated = { ...readJSON<Record<string, PaperRating>>(key, {}), [paperId]: action }
-        setPaperRatings(updated)
-        writeJSON(key, updated)
-        setNotification(action === 'LIKE' ? 'Marked as relevant.' : 'Marked as not relevant.')
-      } else if (action === 'SAVE' || action === 'UNSAVE') {
+      if (action === 'LIKE') setNotification('Marked as relevant.')
+      else if (action === 'DISLIKE') setNotification('Marked as not relevant.')
+      else if (action === 'SAVE' || action === 'UNSAVE') {
         updatePaper(paperId, { saved: action === 'SAVE' })
         setNotification(action === 'SAVE' ? 'Paper saved.' : 'Paper removed from saved.')
       }
+
+      // The backend determines the definitive state (latest LIKE/DISLIKE and SAVE/UNSAVE).
+      // Invalidate the visible state so feedback can't be sent again during refresh.
+      setSelectedPaperState(null)
+      setPaperStateLoading(true)
+      setPaperStateRevision(current => current + 1)
     } catch (error) {
       setNotification(error instanceof Error ? error.message : 'Unable to record paper feedback.')
     } finally {
@@ -371,14 +392,11 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     setSelectedId(id)
     setMobileLibrary(false)
     // OPEN is a deliberate navigation event; don't confuse it with READ or IMPRESSION.
-    if (activeUserId !== null) {
-      void researchApi.interaction(Number(id), {
-        user_id: activeUserId,
-        action: 'OPEN',
-        source_agent: 'research',
-        interaction_metadata: { surface: 'library', trigger: 'paper_row' },
-      }).catch(error => console.warn('Unable to record paper open:', error))
-    }
+    void researchApi.interaction(Number(id), {
+      action: 'OPEN',
+      source_agent: 'research',
+      interaction_metadata: { surface: 'library', trigger: 'paper_row' },
+    }).catch(error => console.warn('Unable to record paper open:', error))
   }
   function createCollection(event: { preventDefault: () => void }) {
     event.preventDefault()
@@ -485,14 +503,20 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
               <div className="research-metadata-line"><span>{selected.year}</span>{selected.collection && <><span className="research-meta-bullet">·</span><span>{selected.collection}</span></>}{selected.sourceUrl && <><span className="research-meta-bullet">·</span><a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer">Original source <ArrowUpRight size={12}/></a></>}</div>
               <div className="research-tag-row">{selected.tags.map(t => <Badge className="research-tag" variant="secondary" key={t}>{t}</Badge>)}</div>
               <PaperFeedbackActions
-                rating={paperRatings[selected.id] ?? null}
-                saved={selected.saved}
+                rating={displayedPaperState?.liked ? 'LIKE' : displayedPaperState?.disliked ? 'DISLIKE' : null}
+                saved={displayedPaperState?.saved ?? false}
                 busy={feedbackBusy}
-                disabled={activeUserId === null}
+                disabled={!displayedPaperState || paperStateLoading}
                 onRate={rating => void submitPaperAction(selected.id, rating)}
-                onToggleSave={() => void submitPaperAction(selected.id, selected.saved ? 'UNSAVE' : 'SAVE')}
+                onToggleSave={() => void submitPaperAction(selected.id, displayedPaperState?.saved ? 'UNSAVE' : 'SAVE')}
               />
-              {activeUserId === null && <p className="research-feedback-hint">Set a backend user ID in New research to enable feedback.</p>}
+              {paperStateLoading && <p className="research-feedback-hint">Loading paper feedback…</p>}
+              {paperStateError && (
+                <p className="research-feedback-hint" role="alert">
+                  {paperStateError}{' '}
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setPaperStateRevision(current => current + 1)}>Retry</Button>
+                </p>
+              )}
             </div>
             <Separator className="research-content-divider" />
             <div className="research-document-section">
@@ -560,7 +584,6 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
         open={resultsOpen}
         onOpenChange={setResultsOpen}
         run={researchRun}
-        userId={activeUserId}
         collections={collections}
         savedPaperIds={new Set(Object.keys(preferences).filter(id => preferences[id]?.saved))}
         paperCollections={Object.fromEntries(Object.entries(preferences).map(([id, pref]) => [id, pref.collection ?? '']))}
@@ -588,17 +611,11 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
               <label htmlFor="api-research-topic">Research topic</label>
               <textarea id="api-research-topic" className="research-dialog-textarea" required rows={4} value={researchPrompt} onChange={e => setResearchPrompt(e.target.value)} placeholder="e.g. Recent retrieval-augmented generation architectures"/>
             </div>
-            <div className="research-form-row">
-              <div className="research-field">
-                <label htmlFor="api-research-user">Backend user ID</label>
-                <Input id="api-research-user" type="number" min="1" required value={researchUserId} onChange={e => setResearchUserId(e.target.value)} placeholder="e.g. 1"/>
-              </div>
-              <div className="research-field">
-                <label htmlFor="api-paper-count">Papers (1–30)</label>
-                <Input id="api-paper-count" type="number" min="1" max="30" value={paperCount} onChange={e => setPaperCount(Number(e.target.value))}/>
-              </div>
+            <div className="research-field">
+              <label htmlFor="api-paper-count">Papers (1–30)</label>
+              <Input id="api-paper-count" type="number" min="1" max="30" value={paperCount} onChange={e => setPaperCount(Number(e.target.value))}/>
             </div>
-            <DialogFooter><Button type="button" variant="ghost" onClick={() => setResearchOpen(false)}>Cancel</Button><Button type="submit" disabled={startingResearch || !researchPrompt.trim() || !researchUserId || paperCount < 1 || paperCount > 30}>{startingResearch ? 'Starting…' : 'Start research'}</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="ghost" onClick={() => setResearchOpen(false)}>Cancel</Button><Button type="submit" disabled={startingResearch || !researchPrompt.trim() || paperCount < 1 || paperCount > 30}>{startingResearch ? 'Starting…' : 'Start research'}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

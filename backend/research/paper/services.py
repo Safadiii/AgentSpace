@@ -8,6 +8,7 @@ from storage.research.models import (Paper, PaperAuthor, PaperTopic, ResearchInt
 from typing import List
 from backend.research.schemas import PaperCreate, PaperStateRead
 
+LOCAL_USER_ID = 1
 
 class NoSearchHistoryError(Exception):
     pass
@@ -136,17 +137,17 @@ class ResearchPreferenceServices:
         self.session = session
         self.repository = ResearchInterestRepository(session)
 
-    def record_research_interest(self, user_id: int, topic: str) -> ResearchInterest:
+    def record_research_interest(self, topic: str) -> ResearchInterest:
         topic = " ".join(topic.split())
 
-        if user_id <= 0:
-            raise ValueError("Invalid User ID")
+        if self.session.get(UserProfile, LOCAL_USER_ID) is None:
+            raise IndexError("User is not found")
 
         if not topic or len(topic) > 255:
             raise ValueError("Invalid topic length (Must be between 1 and 255)")
 
         try:
-            existing = self.repository.get_user_topic_interest(user_id, topic)
+            existing = self.repository.get_user_topic_interest(LOCAL_USER_ID, topic)
 
             now = utc_now()
 
@@ -157,7 +158,7 @@ class ResearchPreferenceServices:
                 interest = existing
             else:
                 interest = ResearchInterest(
-                    user_id=user_id,
+                    user_id=LOCAL_USER_ID,
                     topic_name=topic,
                     interest_type=InterestType.INCLUDE,
                     last_searched_at=now,
@@ -175,14 +176,13 @@ class ResearchPreferenceServices:
         return interest
 
     def get_interests(
-        self,
-        user_id: int
+        self
     ) -> list[ResearchInterest]:
 
-        return self.repository.get_all_users_interests(user_id)
-    def get_fallback_topic(self, user_id: int) -> str | None:
+        return self.repository.get_all_users_interests(LOCAL_USER_ID)
+    def get_fallback_topic(self) -> str | None:
         latest = self.repository.get_latest_interest(
-            user_id
+            LOCAL_USER_ID
         )
 
         if latest is None:
@@ -194,18 +194,15 @@ class ResearchQueryServices:
     def __init__(self, session: Session):
         self.preference = ResearchPreferenceServices(session)
 
-    def resolve_query(self, user_id: int, prompt: str | None) -> tuple[RecommendationMode, str]:
-        if user_id <= 0:
-            raise ValueError("Invalid User ID")
-
+    def resolve_query(self, prompt: str | None) -> tuple[RecommendationMode, str]:
         query = " ".join(prompt.split()) if prompt else ""
 
         if query:
-            interest = self.preference.record_research_interest(user_id, topic=query)
+            interest = self.preference.record_research_interest(topic=query)
 
             return (RecommendationMode.TOPIC, interest.topic_name)
 
-        fallback = self.preference.get_fallback_topic(user_id=user_id)
+        fallback = self.preference.get_fallback_topic()
 
         if fallback is None:
             raise NoSearchHistoryError("No search history found, search for something first")
@@ -217,8 +214,8 @@ class RecommendationRunServices:
         self.session = session
         self.repository = RecommendationRunRepository(session)
         self.item_repository = RecommendationItemRepository(session)
-    def start_run(self, user_id: int, mode: RecommendationMode, query: str, algorithm_version: str = "v1") -> RecommendationRun:
-        if user_id <= 0:
+    def start_run(self, mode: RecommendationMode, query: str, algorithm_version: str = "v1") -> RecommendationRun:
+        if self.session.get(UserProfile, LOCAL_USER_ID) is None:
             raise ValueError("Invalid User ID")
 
         query = query.strip()
@@ -230,7 +227,7 @@ class RecommendationRunServices:
             raise ValueError("Version Number must be between 0 and 15 characters")
 
         run = RecommendationRun(
-            user_id=user_id,
+            user_id=LOCAL_USER_ID,
             mode=mode,
             query=query,
             algorithm_version=algorithm_version,
@@ -346,7 +343,6 @@ class PaperInteractionServices:
 
     def record_interaction(
         self,
-        user_id: int,
         paper_id: int,
         action: PaperAction,
         recommendation_item_id: int | None = None,
@@ -355,7 +351,7 @@ class PaperInteractionServices:
     ) -> PaperInteraction:
 
         try:
-            if self.repository.lock_user(user_id) is None:
+            if self.repository.lock_user(LOCAL_USER_ID) is None:
                 raise ValueError("User not found")
 
             if self.session.get(Paper, paper_id) is None:
@@ -366,7 +362,7 @@ class PaperInteractionServices:
                 item = self.session.get(RecommendationItem, recommendation_item_id)
                 run = self.session.get(RecommendationRun, item.run_id) if item else None
 
-                if item is None or item.paper_id != paper_id or run is None or run.user_id != user_id:
+                if item is None or item.paper_id != paper_id or run is None or run.user_id != LOCAL_USER_ID:
                     raise ValueError("Invalid recommendation item")
 
             if action == PaperAction.IMPRESSION:
@@ -374,7 +370,7 @@ class PaperInteractionServices:
                 day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
                 existing = self.repository.get_interaction(
-                    user_id=user_id,
+                    user_id=LOCAL_USER_ID,
                     paper_id=paper_id,
                     action=action,
                     recommendation_item_id=recommendation_item_id,
@@ -389,7 +385,7 @@ class PaperInteractionServices:
                     return existing
 
             interaction = PaperInteraction(
-                user_id=user_id,
+                user_id=LOCAL_USER_ID,
                 paper_id=paper_id,
                 action=action,
                 recommendation_item_id=recommendation_item_id,
@@ -407,13 +403,13 @@ class PaperInteractionServices:
             self.session.rollback()
             raise
 
-    def get_paper_status(self, user_id: int, paper_id: int) -> PaperStateRead:
-        if self.session.get(UserProfile, user_id) is None:
+    def get_paper_status(self, paper_id: int) -> PaperStateRead:
+        if self.session.get(UserProfile, LOCAL_USER_ID) is None:
             raise ValueError("User not found")
         if self.paper_repository.get_by_id(paper_id) is None:
             raise ValueError("Paper not found")
 
-        interactions = self.repository.get_paper_state(user_id, paper_id)
+        interactions = self.repository.get_paper_state(LOCAL_USER_ID, paper_id)
 
         rating: str | None = None
         saved: bool | None = None
@@ -433,7 +429,7 @@ class PaperInteractionServices:
                 break
 
         return PaperStateRead(
-            user_id=user_id,
+            user_id=LOCAL_USER_ID,
             paper_id=paper_id,
             liked=rating == "like",
             disliked=rating == "dislike",
