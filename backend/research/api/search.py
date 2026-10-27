@@ -15,6 +15,8 @@ from agents.research.agent import ResearchAgent
 
 logger = logging.getLogger(__name__)
 
+LOCAL_USER_ID = 1
+
 search_router = APIRouter(
     prefix="/research",
     tags=["Research"]
@@ -22,7 +24,6 @@ search_router = APIRouter(
 
 
 class ResearchRequest(BaseModel):
-    user_id: int
     prompt: str = Field(min_length=1)
     paper_count: int = Field(default=5, ge=1, le=30)
     exploration_agents: int = Field(default=2, ge=0, le=3)
@@ -63,7 +64,7 @@ async def search_papers(request: ResearchRequest):
 
     try:
         result = await orchestrator.execute_search(
-            user_id=request.user_id,
+            user_id=LOCAL_USER_ID,
             prompt=request.prompt,
             paper_count=request.paper_count,
             exploration_agents=request.exploration_agents,
