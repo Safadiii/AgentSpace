@@ -1,6 +1,7 @@
 from sqlmodel import select, Session, func
+from datetime import datetime
 
-from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, InterestType, RecommendationRun, RecommendationItem
+from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, InterestType, UserProfile, RecommendationRun, RecommendationItem, PaperInteraction, PaperAction
 from typing import List
 from sqlalchemy.orm import selectinload
 
@@ -193,3 +194,110 @@ class RecommendationItemRepository:
         )
 
         return list(self.session.exec(statement).all())
+
+class PaperInteractionRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def lock_user(self, user_id: int) -> UserProfile | None:
+        # Serialize impression writes for a user on MySQL/InnoDB. Avoids duplicate
+        # rows when several viewport events arrive concurrently.
+        statement = select(UserProfile).where(UserProfile.id == user_id).with_for_update()
+        return self.session.exec(statement).one_or_none()
+
+    def get_impression(
+        self,
+        *,
+        user_id: int,
+        paper_id: int,
+        recommendation_item_id: int | None,
+        source_agent: str,
+        day_start: datetime,
+        next_day: datetime,
+    ) -> PaperInteraction | None:
+        statement = select(PaperInteraction).where(
+            PaperInteraction.user_id == user_id,
+            PaperInteraction.action == PaperAction.IMPRESSION,
+        )
+
+        if recommendation_item_id is not None:
+            # A recommended paper is counted once per recommendation item.
+            statement = statement.where(
+                PaperInteraction.recommendation_item_id == recommendation_item_id
+            )
+        else:
+            # Unattributed library impressions are counted once per UTC day.
+            statement = statement.where(
+                PaperInteraction.paper_id == paper_id,
+                PaperInteraction.recommendation_item_id.is_(None),
+                PaperInteraction.source_agent == source_agent,
+                PaperInteraction.created_at >= day_start,
+                PaperInteraction.created_at < next_day,
+            )
+
+        return self.session.exec(statement.order_by(PaperInteraction.id.desc())).first()
+
+    def get_interaction(
+        self,
+        *,
+        user_id: int,
+        paper_id: int,
+        action: PaperAction,
+        recommendation_item_id: int | None = None,
+        source_agent: str | None = None,
+        day_start: datetime | None = None,
+        next_day: datetime | None = None,
+    ) -> PaperInteraction | None:
+
+        statement = select(PaperInteraction).where(
+            PaperInteraction.user_id == user_id,
+            PaperInteraction.paper_id == paper_id,
+            PaperInteraction.action == action,
+        )
+
+        if recommendation_item_id is not None:
+            statement = statement.where(
+                PaperInteraction.recommendation_item_id == recommendation_item_id
+            )
+        else:
+            statement = statement.where(
+                PaperInteraction.recommendation_item_id.is_(None)
+            )
+
+        if source_agent is not None:
+            statement = statement.where(
+                PaperInteraction.source_agent == source_agent
+            )
+
+        if day_start is not None:
+            statement = statement.where(PaperInteraction.created_at >= day_start)
+
+        if next_day is not None:
+            statement = statement.where(PaperInteraction.created_at < next_day)
+
+        return self.session.exec(
+            statement.order_by(PaperInteraction.id.desc())
+        ).first()
+
+    def get_paper_state(self, user_id: int, paper_id: int) -> list[PaperInteraction]:
+        actions = [
+            PaperAction.SAVE,
+            PaperAction.UNSAVE,
+            PaperAction.DISLIKE,
+            PaperAction.LIKE,
+
+        ]
+
+        statement = (
+            select(PaperInteraction)
+            .where(PaperInteraction.user_id == user_id,
+                   PaperInteraction.paper_id == paper_id,
+                   PaperInteraction.action.in_(actions))
+            .order_by(PaperInteraction.created_at.desc(),
+                      PaperInteraction.id.desc())
+        )
+
+        return list(self.session.exec(statement).all())
+    def add(self, interaction: PaperInteraction) -> None:
+        self.session.add(interaction)
+

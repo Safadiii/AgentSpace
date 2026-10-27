@@ -1,11 +1,12 @@
 from sqlmodel import Session
+from datetime import datetime, time, timedelta, timezone
 from backend.research.paper.repository import (PaperRepository, PaperAuthorRepository, 
                                             PaperTopicRepository, ResearchInterestRepository, RecommendationRunRepository,
-                                            RecommendationItemRepository)
+                                            RecommendationItemRepository, PaperInteractionRepository)
 from storage.research.models import (Paper, PaperAuthor, PaperTopic, ResearchInterest, utc_now, RecommendationItem, 
-                                     InterestType, RecommendationMode, RecommendationRun, RecommendationStatus)
+                                     InterestType, RecommendationMode, RecommendationRun, RecommendationStatus, PaperInteraction, PaperAction, UserProfile)
 from typing import List
-from backend.research.schemas import PaperCreate, PaperRead
+from backend.research.schemas import PaperCreate, PaperStateRead
 
 
 class NoSearchHistoryError(Exception):
@@ -299,29 +300,142 @@ class RecommendationRunServices:
         return self.repository.get_with_items(run_id)
 
     def get_research_run(self, run_id: int):
-        with self.session as session:
-            service = RecommendationRunServices(session)
-            run = service.get_run_with_items(run_id)
+        # The FastAPI dependency owns the session lifetime; don't close it here.
+        run = self.get_run_with_items(run_id)
+        if run is None:
+            raise ValueError("Run not found")
 
-            if run is None:
-                raise ValueError(
-                    "Run not found"
+        items = sorted(run.items, key=lambda item: item.rank)
+
+        return {
+            "run_id": run.id,
+            "status": run.status.value,
+            "user_id": run.user_id,
+            "mode": run.mode.value,
+            "query": run.query,
+            "algorithm_version": run.algorithm_version,
+            "configuration_snapshot": run.configuration_snapshot,
+            "created_at": run.created_at,
+            "completed_at": run.completed_at,
+            "error_message": run.error_message,
+            "papers": [
+                {
+                    "rank": item.rank,
+                    "id": item.paper.id,
+                    "title": item.paper.title,
+                    "abstract": item.paper.abstract,
+                    "openalex_id": item.paper.openalex_id,
+                    "recommendation_item_id": item.id,
+                    "relevance_score": item.relevance_score,
+                    "score_breakdown": item.score_breakdown,
+                    "explanation": item.explanation,
+                }
+                for item in items
+            ],
+        }
+
+class ImpressionNotFoundError(LookupError):
+    pass
+
+
+class PaperInteractionServices:
+    def __init__(self, session: Session):
+        self.session = session
+        self.repository = PaperInteractionRepository(session)
+        self.paper_repository = PaperRepository(session)
+
+    def record_interaction(
+        self,
+        user_id: int,
+        paper_id: int,
+        action: PaperAction,
+        recommendation_item_id: int | None = None,
+        source_agent: str = "research",
+        metadata: dict | None = None,
+    ) -> PaperInteraction:
+
+        try:
+            if self.repository.lock_user(user_id) is None:
+                raise ValueError("User not found")
+
+            if self.session.get(Paper, paper_id) is None:
+                raise ValueError("Paper not found")
+
+            # Validate recommendation ownership when provided.
+            if recommendation_item_id is not None:
+                item = self.session.get(RecommendationItem, recommendation_item_id)
+                run = self.session.get(RecommendationRun, item.run_id) if item else None
+
+                if item is None or item.paper_id != paper_id or run is None or run.user_id != user_id:
+                    raise ValueError("Invalid recommendation item")
+
+            if action == PaperAction.IMPRESSION:
+                now = utc_now()
+                day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                existing = self.repository.get_interaction(
+                    user_id=user_id,
+                    paper_id=paper_id,
+                    action=action,
+                    recommendation_item_id=recommendation_item_id,
+                    source_agent=source_agent if recommendation_item_id is None else None,
+                    day_start=day_start if recommendation_item_id is None else None,
+                    next_day=day_start + timedelta(days=1)
+                        if recommendation_item_id is None else None,
                 )
 
-            items = sorted(run.items, key=lambda item: item.rank)
+                if existing:
+                    self.session.commit()
+                    return existing
 
-            return {
-                "run_id": run.id,
-                "status": run.status,
-                "papers": [
-                    {
-                        "rank": item.rank,
-                        "id": item.paper.id,
-                        "title": item.paper.title,
-                        "abstract": item.paper.abstract,
-                        "openalex_id": item.paper.openalex_id,
-                    }
-                    for item in items
-                ],
-            }
+            interaction = PaperInteraction(
+                user_id=user_id,
+                paper_id=paper_id,
+                action=action,
+                recommendation_item_id=recommendation_item_id,
+                source_agent=source_agent,
+                interaction_metadata=metadata or {},
+            )
 
+            self.repository.add(interaction)
+            self.session.commit()
+            self.session.refresh(interaction)
+
+            return interaction
+
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def get_paper_status(self, user_id: int, paper_id: int) -> PaperStateRead:
+        if self.session.get(UserProfile, user_id) is None:
+            raise ValueError("User not found")
+        if self.paper_repository.get_by_id(paper_id) is None:
+            raise ValueError("Paper not found")
+
+        interactions = self.repository.get_paper_state(user_id, paper_id)
+
+        rating: str | None = None
+        saved: bool | None = None
+
+        for interaction in interactions:    
+            if rating is None: 
+                if interaction.action == PaperAction.LIKE:
+                    rating = "like"
+                elif interaction.action == PaperAction.DISLIKE:
+                    rating = "dislike"
+            if saved is None:
+                if interaction.action == PaperAction.SAVE:
+                    saved = True
+                elif interaction.action == PaperAction.UNSAVE:
+                    saved = False
+            if rating is not None and saved is not None:
+                break
+
+        return PaperStateRead(
+            user_id=user_id,
+            paper_id=paper_id,
+            liked=rating == "like",
+            disliked=rating == "dislike",
+            saved=saved if saved is not None else False
+        )

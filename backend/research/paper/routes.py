@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
 from backend.init import get_session
-from backend.research.schemas import PaperRead, PaperCreate, PaperDetailedRead, ResearchRunResponse
-from backend.research.paper.services import PaperServices, RecommendationRunServices
+from backend.research.schemas import PaperRead, PaperCreate, PaperDetailedRead, ResearchRunResponse, PaperInteractionRead, PaperInteractionCreate, PaperStateRead
+from backend.research.paper.services import PaperServices, RecommendationRunServices, PaperInteractionServices, ImpressionNotFoundError
 from typing import List
 
 
@@ -76,4 +76,43 @@ def get_research_run(
         raise HTTPException(
             status_code=404,
             detail=str(exc),
+        ) from exc
+
+@paper_router.get(
+    "/papers/{paper_id}/interactions",
+    response_model=PaperStateRead
+)
+def get_paper_state(
+    paper_id: int,
+    user_id: int,
+    session: DBSession
+):
+    service = PaperInteractionServices(session)
+
+    return service.get_paper_status(user_id, paper_id)
+
+@paper_router.post(
+    "/papers/{paper_id}/interactions",
+    response_model=PaperInteractionRead
+)
+def record_paper_interaction(
+    paper_id: int,
+    data: PaperInteractionCreate,
+    session: DBSession,
+):
+    service = PaperInteractionServices(session)
+
+    try:
+        return service.record_interaction(
+            user_id=data.user_id,
+            paper_id=paper_id,
+            action=data.action,
+            recommendation_item_id=data.recommendation_item_id,
+            source_agent=data.source_agent,
+            metadata=data.interaction_metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc)
         ) from exc

@@ -69,6 +69,44 @@ export interface ResearchRunResponse {
   papers?: Array<{ rank: number; id: number; title: string; abstract?: string | null; openalex_id: string }>
 }
 
+export type PaperAction =
+  | 'IMPRESSION' | 'LIKE' | 'DISLIKE' | 'SAVE' | 'UNSAVE'
+  | 'READ' | 'OPEN' | 'SKIP'
+
+export interface PaperInteractionCreate {
+  user_id: number
+  action: PaperAction
+  recommendation_item_id?: number | null
+  source_agent?: string
+  interaction_metadata?: Record<string, unknown>
+}
+
+export interface PaperInteractionRead {
+  id: number
+  user_id: number
+  paper_id: number
+  recommendation_item_id: number | null
+  action: PaperAction
+  created_at: string
+}
+
+export interface PaperImpressionCreate {
+  user_id: number
+  source_agent?: string
+  recommendation_item_id?: number | null
+  interaction_metadata?: Record<string, unknown>
+}
+
+export interface PaperImpressionRead {
+  id: number
+  user_id: number
+  paper_id: number
+  recommendation_item_id: number | null
+  action: string
+  recorded: boolean
+  created_at: string
+}
+
 async function call<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     ...options,
@@ -100,4 +138,11 @@ export const researchApi = {
     call<ResearchResponse>('/search', { method: 'POST', body: JSON.stringify(params) }),
   run: (runId: number, signal?: AbortSignal) =>
     call<ResearchRunResponse>(`/runs/${runId}`, { signal }),
+  interaction: (paperId: number, data: PaperInteractionCreate) =>
+    call<PaperInteractionRead>(`/papers/${paperId}/interactions`, { method: 'POST', body: JSON.stringify(data) }),
+  // Legacy helper for ResearchResultsModal: uses the new generalized route.
+  impression: (paperId: number, impression: PaperImpressionCreate) =>
+    call<PaperInteractionRead>(`/papers/${paperId}/interactions`, {
+      method: 'POST', body: JSON.stringify({ ...impression, action: 'IMPRESSION' }),
+    }),
 }

@@ -17,10 +17,15 @@ import {
 import { researchApi } from './api/researchApi'
 import type { PaperRead, PaperDetailedRead, ResearchRunResponse } from './api/researchApi'
 import './css/research.css'
+import ResearchResultsModal from './components/research/ResearchResultsModal'
+import PaperFeedbackActions from './components/research/PaperFeedbackActions'
+import type { PaperAction } from './api/researchApi'
 
 type LibraryView = 'all' | 'saved' | `collection:${string}`
 type ResearchAction = 'summarize' | 'ask' | 'compare' | 'notes' | 'collection'
 type SortKey = 'newest' | 'oldest' | 'title'
+type PaperRating = 'LIKE' | 'DISLIKE'
+const FEEDBACK_CACHE_PREFIX = 'olympus:research-feedback:v1'
 
 type Paper = {
   id: string
@@ -86,6 +91,8 @@ function toPaper(p: PaperRead, detail: PaperDetailedRead | undefined, prefs: Loc
 const yearOf = (p: Paper) => Number.parseInt(p.year, 10) || 0
 
 const runTerminalStatuses = new Set(['completed', 'complete', 'finished', 'success', 'done', 'succeeded', 'failed', 'error', 'cancelled', 'canceled'])
+const runSuccessStatuses = new Set(['completed', 'complete', 'finished', 'success', 'done', 'succeeded'])
+const isRunDone = (status: string) => runSuccessStatuses.has(status.toLowerCase())
 
 const actionInfo: Record<ResearchAction, { label: string; description: string }> = {
   summarize: { label: 'Summarize paper', description: 'Prepare a concise, structured research summary.' },
@@ -117,6 +124,11 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   const [startingResearch, setStartingResearch] = useState(false)
   const [researchRun, setResearchRun] = useState<ResearchRunResponse | null>(null)
   const [runLoading, setRunLoading] = useState(false)
+  const [resultsOpen, setResultsOpen] = useState(false)
+  // Runs we've already announced with a toast, so polling never announces the same run twice.
+  const announcedRunIds = useRef(new Set<number>())
+  const [doneToast, setDoneToast] = useState<{ runId: number } | null>(null)
+  const [pendingPrompt, setPendingPrompt] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [view, setView] = useState<LibraryView>('all')
   const [search, setSearch] = useState('')
@@ -132,7 +144,19 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   // The agent is a side column on wide screens and a drawer on narrow ones; start it closed on narrow screens.
   const [agentOpen, setAgentOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 1200)
   const [sort, setSort] = useState<SortKey>('newest')
+  const [paperRatings, setPaperRatings] = useState<Record<string, PaperRating>>({})
+  const [feedbackBusy, setFeedbackBusy] = useState<PaperAction | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+
+  const userNumber = Number(researchUserId)
+  const activeUserId = Number.isInteger(userNumber) && userNumber > 0 ? userNumber : null
+
+  // Client-side display cache until the backend exposes GET /users/{id}/interactions.
+  useEffect(() => {
+    setPaperRatings(activeUserId === null ? {} : readJSON<Record<string, PaperRating>>(
+      `${FEEDBACK_CACHE_PREFIX}:${activeUserId}`, {}
+    ))
+  }, [activeUserId])
 
   useEffect(() => { preferencesRef.current = preferences; writeJSON(PREFERENCES_KEY, preferences) }, [preferences])
   useEffect(() => { abstractsRef.current = abstracts; writeJSON(ABSTRACTS_KEY, abstracts) }, [abstracts])
@@ -186,6 +210,12 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     try {
       const run = await researchApi.run(id)
       setResearchRun(run)
+      // Announce a finished run once with a toast; the person opens the results themselves.
+      if (runTerminalStatuses.has(run.status.toLowerCase()) && !announcedRunIds.current.has(run.run_id)) {
+        announcedRunIds.current.add(run.run_id)
+        if (isRunDone(run.status)) setDoneToast({ runId: run.run_id })
+        else setNotification(`Research #${run.run_id} ${run.status.toLowerCase()}.`)
+      }
       const newAbstracts = Object.fromEntries((run.papers ?? []).filter(p => p.abstract).map(p => [String(p.id), p.abstract as string]))
       if (Object.keys(newAbstracts).length) {
         const updated = { ...abstractsRef.current, ...newAbstracts }
@@ -230,17 +260,22 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
       setNotification('Enter a valid user ID and a research topic.')
       return
     }
+    // The request takes ~30s, so close the dialog right away and let it run in the background.
+    const prompt = researchPrompt.trim()
     setStartingResearch(true)
+    setPendingPrompt(prompt)
+    setDoneToast(null)
+    setResearchRun(null)
+    setResearchOpen(false)
+    setResearchPrompt('')
+    setNotification("Research started. We'll let you know when it's ready.")
     try {
-      const result = await researchApi.search({ user_id: userId, prompt: researchPrompt.trim(), paper_count: paperCount })
+      const result = await researchApi.search({ user_id: userId, prompt, paper_count: paperCount })
       setResearchRun({ run_id: result.run_id, status: 'pending', papers: [] })
-      setResearchOpen(false)
-      setResearchPrompt('')
-      setNotification(`Research started. ${result.saved_count} paper(s) saved by this run.`)
       void loadPapers(0)
-      void fetchRun(result.run_id)
+      await fetchRun(result.run_id) // Announces completion with a toast if the run is already done.
     } catch (error) { setNotification(error instanceof Error ? error.message : 'Research request failed.') }
-    finally { setStartingResearch(false) }
+    finally { setStartingResearch(false); setPendingPrompt('') }
   }
 
   useEffect(() => {
@@ -289,6 +324,43 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
     preferencesRef.current = next
     setPreferences(next)
   }
+
+  // Only update the UI after FastAPI confirms the event was stored.
+  async function submitPaperAction(paperId: string, action: PaperAction) {
+    if (activeUserId === null) {
+      setNotification('Set a backend user ID in New research (or VITE_RESEARCH_USER_ID) first.')
+      return
+    }
+    if (feedbackBusy !== null) return
+    const paper = papers.find(item => item.id === paperId)
+    if (!paper) return
+
+    setFeedbackBusy(action)
+    try {
+      await researchApi.interaction(Number(paperId), {
+        user_id: activeUserId,
+        action,
+        source_agent: 'research',
+        interaction_metadata: { surface: 'paper_details' },
+      })
+
+      if (action === 'LIKE' || action === 'DISLIKE') {
+        const key = `${FEEDBACK_CACHE_PREFIX}:${activeUserId}`
+        const updated = { ...readJSON<Record<string, PaperRating>>(key, {}), [paperId]: action }
+        setPaperRatings(updated)
+        writeJSON(key, updated)
+        setNotification(action === 'LIKE' ? 'Marked as relevant.' : 'Marked as not relevant.')
+      } else if (action === 'SAVE' || action === 'UNSAVE') {
+        updatePaper(paperId, { saved: action === 'SAVE' })
+        setNotification(action === 'SAVE' ? 'Paper saved.' : 'Paper removed from saved.')
+      }
+    } catch (error) {
+      setNotification(error instanceof Error ? error.message : 'Unable to record paper feedback.')
+    } finally {
+      setFeedbackBusy(null)
+    }
+  }
+
   function chooseView(next: LibraryView) {
     setView(next)
     setSelectedId(null)
@@ -298,6 +370,15 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   function openPaper(id: string) {
     setSelectedId(id)
     setMobileLibrary(false)
+    // OPEN is a deliberate navigation event; don't confuse it with READ or IMPRESSION.
+    if (activeUserId !== null) {
+      void researchApi.interaction(Number(id), {
+        user_id: activeUserId,
+        action: 'OPEN',
+        source_agent: 'research',
+        interaction_metadata: { surface: 'library', trigger: 'paper_row' },
+      }).catch(error => console.warn('Unable to record paper open:', error))
+    }
   }
   function createCollection(event: { preventDefault: () => void }) {
     event.preventDefault()
@@ -402,7 +483,16 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
               <h1>{selected.title}</h1>
               <p className="research-authors">{selected.authors}</p>
               <div className="research-metadata-line"><span>{selected.year}</span>{selected.collection && <><span className="research-meta-bullet">·</span><span>{selected.collection}</span></>}{selected.sourceUrl && <><span className="research-meta-bullet">·</span><a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer">Original source <ArrowUpRight size={12}/></a></>}</div>
-              <div className="research-tag-row">{selected.tags.map(t => <Badge className="research-tag" variant="secondary" key={t}>{t}</Badge>)}<Button size="sm" variant="ghost" className="research-bookmark-toggle" onClick={() => updatePaper(selected.id, { saved: !selected.saved })}><Bookmark size={14} fill={selected.saved ? 'currentColor' : 'none'}/>{selected.saved ? 'Bookmarked' : 'Bookmark'}</Button></div>
+              <div className="research-tag-row">{selected.tags.map(t => <Badge className="research-tag" variant="secondary" key={t}>{t}</Badge>)}</div>
+              <PaperFeedbackActions
+                rating={paperRatings[selected.id] ?? null}
+                saved={selected.saved}
+                busy={feedbackBusy}
+                disabled={activeUserId === null}
+                onRate={rating => void submitPaperAction(selected.id, rating)}
+                onToggleSave={() => void submitPaperAction(selected.id, selected.saved ? 'UNSAVE' : 'SAVE')}
+              />
+              {activeUserId === null && <p className="research-feedback-hint">Set a backend user ID in New research to enable feedback.</p>}
             </div>
             <Separator className="research-content-divider" />
             <div className="research-document-section">
@@ -416,11 +506,12 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
               <div className="research-list-actions">
                 <Button type="button" variant="ghost" className="research-icon-button" title="Refresh papers" aria-label="Refresh papers" disabled={loading} onClick={() => void loadPapers(0)}><RefreshCw size={15}/></Button>
                 <Button type="button" variant="outline" className="research-secondary-button" onClick={() => setAddOpen(true)}><Plus size={15}/> Add paper</Button>
-                <Button type="button" className="research-primary-button" onClick={() => setResearchOpen(true)}><Sparkles size={15}/> New research</Button>
+                <Button type="button" className="research-primary-button" disabled={startingResearch} onClick={() => setResearchOpen(true)}><Sparkles size={15}/> New research</Button>
               </div>
             </div>
             {libraryError && <div className="research-api-error" role="alert"><span>{libraryError}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => void loadPapers(0)}>Retry</Button></div>}
-            {researchRun && <div className="research-run-banner" role="status"><div><span className={`research-run-dot research-run-dot--${runTerminalStatuses.has(researchRun.status.toLowerCase()) ? 'done' : 'live'}`}/><span>Research #{researchRun.run_id} · <b>{researchRun.status}</b> · {researchRun.papers?.length ?? 0} {(researchRun.papers?.length ?? 0) === 1 ? 'paper' : 'papers'}</span></div><Button type="button" variant="ghost" size="sm" className="research-banner-button" disabled={runLoading} onClick={() => void fetchRun(researchRun.run_id)}><RefreshCw size={13}/> Check status</Button></div>}
+            {startingResearch && <div className="research-run-banner" role="status"><div><span className="research-run-dot research-run-dot--live"/><span>Athena is researching <b>{pendingPrompt.length > 70 ? `${pendingPrompt.slice(0, 70)}…` : pendingPrompt}</b></span></div></div>}
+            {!startingResearch && researchRun && <div className="research-run-banner" role="status"><div><span className={`research-run-dot research-run-dot--${runTerminalStatuses.has(researchRun.status.toLowerCase()) ? 'done' : 'live'}`}/><span>Research #{researchRun.run_id} · <b>{researchRun.status}</b> · {researchRun.papers?.length ?? 0} {(researchRun.papers?.length ?? 0) === 1 ? 'paper' : 'papers'}</span></div><div>{isRunDone(researchRun.status) && <Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => setResultsOpen(true)}>Review findings</Button>}<Button type="button" variant="ghost" size="sm" className="research-banner-button" disabled={runLoading} onClick={() => void fetchRun(researchRun.run_id)}><RefreshCw size={13}/> Check status</Button></div></div>}
             <div className="research-list-toolbar">
               <span>{countText}</span>
               <select className="research-sort" aria-label="Sort papers" value={sort} onChange={e => setSort(e.target.value as SortKey)}>
@@ -464,6 +555,18 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
       </main>
 
       <footer className="research-footer"><span>OLYMPUS / ATHENA</span><span>Research, in harmony.</span><button type="button" onClick={onBack}><ArrowLeft size={14}/> Return to Olympus</button></footer>
+
+      <ResearchResultsModal
+        open={resultsOpen}
+        onOpenChange={setResultsOpen}
+        run={researchRun}
+        userId={activeUserId}
+        collections={collections}
+        savedPaperIds={new Set(Object.keys(preferences).filter(id => preferences[id]?.saved))}
+        paperCollections={Object.fromEntries(Object.entries(preferences).map(([id, pref]) => [id, pref.collection ?? '']))}
+        onToggleSave={(id, saved) => updatePaper(String(id), { saved })}
+        onSaveToCollection={(id, collection) => updatePaper(String(id), { saved: true, collection })}
+      />
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="research-dialog">
@@ -520,7 +623,14 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {notification && <div className="research-toast" role="status"><Check size={15}/>{notification}<button type="button" onClick={() => setNotification('')} aria-label="Dismiss"><X size={13}/></button></div>}
+      <div className="research-toast-stack">
+        {doneToast && <div className="research-toast" role="status">
+          <Sparkles size={15}/>Research #{doneToast.runId} is ready.
+          <button type="button" className="research-toast-action" onClick={() => { setResultsOpen(true); setDoneToast(null) }}>View results <ArrowRight size={13}/></button>
+          <button type="button" onClick={() => setDoneToast(null)} aria-label="Dismiss"><X size={13}/></button>
+        </div>}
+        {notification && <div className="research-toast" role="status"><Check size={15}/>{notification}<button type="button" onClick={() => setNotification('')} aria-label="Dismiss"><X size={13}/></button></div>}
+      </div>
     </div>
   )
 }
