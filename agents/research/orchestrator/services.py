@@ -119,9 +119,24 @@ class ResearchOrchestrator:
                             related_topic,
                         )
 
+            # Filter papers before selecting recommendations
+            accessible_core = [
+                candidate
+                for candidate in core_candidates
+                if candidate.paper.is_open_access
+                and candidate.paper.pdf_url
+            ]
+
+            accessible_exploration = [
+                candidate
+                for candidate in exploration_candidates
+                if candidate.paper.is_open_access
+                and candidate.paper.pdf_url
+            ]
+
             selected = self._select_candidates(
-                core_candidates,
-                exploration_candidates,
+                accessible_core,
+                accessible_exploration,
                 paper_count,
                 exploration_ratio if related_topics else 0.0,
             )

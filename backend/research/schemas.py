@@ -29,6 +29,9 @@ class PaperCreate(SQLModel):
     cited_by_count: int | None = Field(default=None, ge=0)
     landing_page_url: str | None = Field(default=None, max_length=2000)
     source_metadata: dict[str, Any] = Field(default_factory=dict)
+    is_open_access: bool = False
+    pdf_url: str | None = None
+    oa_url: str | None = None
 
     authors: list[PaperAuthorCreate] = Field(default_factory=list)
     topics: list[PaperTopicCreate] = Field(default_factory=list)
@@ -72,6 +75,9 @@ class PaperDetailedRead(SQLModel):
     source_metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+    is_open_access: bool = False
+    pdf_url: str | None = None
+    oa_url: str | None = None
 
     authors: list[PaperAuthorRead] = Field(default_factory=list)
     topics: list[PaperTopicRead] = Field(default_factory=list)

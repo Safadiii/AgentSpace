@@ -70,13 +70,33 @@ class PaperServices:
         )
 
         if existing is not None:
-            return existing
+            # Refresh metadata from OpenAlex
+            try:
+                existing.is_open_access = data.is_open_access
+                existing.pdf_url = data.pdf_url
+                existing.oa_url = data.oa_url
 
+                # Refresh DOI and landing page
+                existing.doi = data.doi
+                existing.landing_page_url = data.landing_page_url
+
+                self.session.add(existing)
+                self.session.commit()
+                self.session.refresh(existing)
+
+                return existing
+
+            except Exception:
+                self.session.rollback()
+                raise
+
+        # Create a new paper
         paper_data = data.model_dump(
             exclude={"authors", "topics"}
         )
 
         paper = Paper(**paper_data)
+
         try:
             self.repository.add(paper)
             self.session.flush()
@@ -86,7 +106,6 @@ class PaperServices:
                     paper_id=paper.id,
                     **author_data.model_dump()
                 )
-
                 self.authorrepository.add(author)
 
             for topic_data in data.topics:
@@ -94,10 +113,10 @@ class PaperServices:
                     paper_id=paper.id,
                     **topic_data.model_dump()
                 )
-
                 self.topicrepository.add(topic)
-                
+
             self.session.commit()
+
         except Exception:
             self.session.rollback()
             raise

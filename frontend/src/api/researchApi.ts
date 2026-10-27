@@ -6,6 +6,9 @@ export interface PaperRead {
   openalex_id: string
   title: string
   doi?: string | null
+  pdf_url?: string | null
+  is_open_access?: boolean
+  oa_url?: string | null
   abstract: string | null
   publication_year?: number | null
 }
@@ -37,6 +40,9 @@ export interface PaperCreate {
   openalex_id: string
   title: string
   doi?: string | null
+  pdf_url?: string | null
+  is_open_access?: boolean
+  oa_url?: string | null
   abstract?: string | null
   publication_year?: number | null
   publication_date?: string | null

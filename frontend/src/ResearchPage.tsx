@@ -62,10 +62,9 @@ function readCollections(): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
-function doiLink(doi?: string | null, openAlexId?: string): string | undefined {
-  const value = doi?.trim()
-  if (value) return /^https?:\/\//i.test(value) ? value : `https://doi.org/${value.replace(/^doi:/i, '')}`
-  return openAlexId?.startsWith('https://') ? openAlexId : undefined
+function pdfLink(url?: string | null): string | undefined {
+  const value = url?.trim()
+  return value && /^https?:\/\//i.test(value) ? value : undefined
 }
 
 function toPaper(p: PaperRead, detail: PaperDetailedRead | undefined, prefs: LocalPreferences, abstracts: Record<string, string>): Paper {
@@ -81,7 +80,7 @@ function toPaper(p: PaperRead, detail: PaperDetailedRead | undefined, prefs: Loc
     tags: detail?.topics?.map(t => t.topic_name).filter(Boolean).slice(0, 4) ?? [],
     saved: prefs[id]?.saved ?? false,
     collection: prefs[id]?.collection ?? '',
-    sourceUrl: doiLink(p.doi, p.openalex_id),
+    sourceUrl: pdfLink(p.pdf_url) ?? pdfLink(detail?.pdf_url),
     addedAt: '',
   }
 }
@@ -196,6 +195,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
         ...p,
         authors: detail.authors?.length ? [...detail.authors].sort((a, b) => a.author_order - b.author_order).map(a => a.author_name).join(', ') : p.authors,
         tags: detail.topics?.map(t => t.topic_name).slice(0, 4) ?? p.tags,
+        sourceUrl: pdfLink(detail.pdf_url) ?? p.sourceUrl,
       }))
     }).catch(() => { /* Enrichment is optional; basic paper data remains visible. */ })
     return () => controller.abort()
@@ -500,7 +500,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
               <span className="research-eyebrow">RESEARCH PAPER <span className="research-dot-separator">·</span> {selected.year}</span>
               <h1>{selected.title}</h1>
               <p className="research-authors">{selected.authors}</p>
-              <div className="research-metadata-line"><span>{selected.year}</span>{selected.collection && <><span className="research-meta-bullet">·</span><span>{selected.collection}</span></>}{selected.sourceUrl && <><span className="research-meta-bullet">·</span><a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer">Original source <ArrowUpRight size={12}/></a></>}</div>
+              <div className="research-metadata-line"><span>{selected.year}</span>{selected.collection && <><span className="research-meta-bullet">·</span><span>{selected.collection}</span></>}{selected.sourceUrl && <><span className="research-meta-bullet">·</span><a href={selected.sourceUrl} target="_blank" rel="noopener noreferrer">Open PDF <ArrowUpRight size={12}/></a></>}</div>
               <div className="research-tag-row">{selected.tags.map(t => <Badge className="research-tag" variant="secondary" key={t}>{t}</Badge>)}</div>
               <PaperFeedbackActions
                 rating={displayedPaperState?.liked ? 'LIKE' : displayedPaperState?.disliked ? 'DISLIKE' : null}

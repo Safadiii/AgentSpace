@@ -122,6 +122,9 @@ class Paper(SQLModel, table=True):
     venue: str | None = Field(default=None, max_length=1000)
     cited_by_count: int | None = Field(default=None, ge=0)
     landing_page_url: str | None = Field(default=None, max_length=2000)
+    is_open_access: bool = Field(default=False, nullable=False)
+    pdf_url: str | None = Field(default=None, max_length=2000)
+    oa_url: str | None = Field(default=None, max_length=2000)
 
     source_metadata: dict[str, Any] = Field(
         default_factory=dict,
