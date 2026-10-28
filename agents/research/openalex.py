@@ -52,7 +52,7 @@ class OpenAlexClient:
         if not 1 <= limit <= 50:
             raise ValueError("Semantic search limit must be 1-50")
 
-        filters = ["is_oa:true"]
+        filters = ["is_oa:true,language:en"]
 
         if from_year is not None:
             filters.append(f"publication_year:>{from_year - 1}")
