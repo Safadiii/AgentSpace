@@ -4,12 +4,12 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { SPRING } from './lib/motion'
 import { api } from './api/api'
 import ResearchPage from './ResearchPage'
-import Atmosphere from './components/shell/Atmosphere'
+import DotField from './components/shell/DotField'
 import TopPill from './components/shell/TopPill'
 import type { Route } from './components/shell/TopPill'
 import AgentSheet from './components/hub/AgentSheet'
 import CommandDialog from './components/hub/CommandDialog'
-import { ActivityItem, AgentNode, AgentRow, DirectiveItem } from './components/hub/AgentParts'
+import { ActivityItem, DirectiveItem, GodRow } from './components/hub/AgentParts'
 import { Button } from './components/ui/button'
 import { useTheme } from './hooks/useTheme'
 import { statusText } from './lib/format'
@@ -97,7 +97,7 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <div className="app">
       <a className="skip-link" href="#main">Skip to content</a>
-      <Atmosphere theme={theme} />
+      <DotField active={route === 'home'} />
       <div className="scroll-edge" aria-hidden="true" />
       <TopPill route={route} theme={theme} onNavigate={navigate} onToggleTheme={toggle} onCommand={() => { setSheetOpen(false); setCommandOpen(true) }} />
 
@@ -105,60 +105,62 @@ export default function App() {
         <motion.div key={route} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
         {route === 'research' ? <ResearchPage /> : (
           <div className="console">
-            <section className="glass stage" aria-labelledby="stage-title">
-              <div className="stage-copy">
-                <h1 id="stage-title">Many minds. <b>One workspace.</b></h1>
+            <section className="hero" aria-labelledby="hero-title">
+              <div className="hero-copy">
+                <h1 id="hero-title">Many minds. <b>One workspace.</b></h1>
                 <p>Delegate a goal, watch each agent work, and keep a record of what changed.</p>
-                <div className="stage-actions">
+                <div className="hero-actions">
                   <Button onClick={() => setCommandOpen(true)}><Plus size={15} aria-hidden="true" /> New directive</Button>
                   <Button variant="outline" onClick={() => navigate('research')}>Open research <ArrowRight size={14} aria-hidden="true" /></Button>
                 </div>
-                <dl className="stage-stats">
+                <dl className="hero-stats">
                   <div><dt>Agents</dt><dd className="mono">{loaded ? pad(state.agents.length) : '–'}</dd></div>
                   <div><dt>At work</dt><dd className="mono">{loaded ? pad(working) : '–'}</dd></div>
                   <div><dt>Open directives</dt><dd className="mono">{loaded ? pad(open) : '–'}</dd></div>
                 </dl>
                 {isDemo && <p className="demo-note" title="The API did not respond, so this view uses sample data stored in your browser. Start the FastAPI server for persistent state.">Preview data stored in this browser</p>}
               </div>
-              <div className="stage-nodes" role="group" aria-label="Agents">
-                {loaded
-                  ? state.agents.map(a => <AgentNode key={a.id} agent={a} task={taskFor(state.tasks, a.id)} onOpen={openAgent} />)
-                  : Array.from({ length: 4 }, (_, i) => <span key={i} className="skeleton node-skeleton" aria-hidden="true" />)}
-              </div>
+              <div className="god-anchor god-anchor--hero" data-god="temple" aria-hidden="true" />
             </section>
 
-            <div className="console-grid">
-              <section className="glass panel-pad" aria-labelledby="agents-title">
-                <div className="panel-head">
-                  <h2 id="agents-title">Agents</h2>
-                  <div className="chips" role="group" aria-label="Filter agents by status">
-                    {(['all', 'working', 'available', 'idle', 'paused'] as const).map(f => (
-                      <button key={f} type="button" className="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f === 'all' ? 'All' : statusText[f]}</button>
-                    ))}
-                  </div>
+            <section className="gods-section" aria-labelledby="agents-title">
+              <div className="panel-head">
+                <h2 id="agents-title">Agents</h2>
+                <div className="chips" role="group" aria-label="Filter agents by status">
+                  {(['all', 'working', 'available', 'idle', 'paused'] as const).map(f => (
+                    <button key={f} type="button" className="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f === 'all' ? 'All' : statusText[f]}</button>
+                  ))}
                 </div>
-                {!loaded
-                  ? Array.from({ length: 4 }, (_, i) => <span key={i} className="skeleton row-skeleton" aria-hidden="true" />)
-                  : visibleAgents.length
-                    ? visibleAgents.map(a => <AgentRow key={a.id} agent={a} task={taskFor(state.tasks, a.id)} onOpen={openAgent} />)
-                    : <p className="empty">No agents are {filter} right now.</p>}
-              </section>
-
-              <div className="console-side">
-                <section className="glass panel-pad" aria-labelledby="dir-title">
-                  <div className="panel-head"><h2 id="dir-title">Directives</h2><span className="mono count">{pad(state.tasks.length)}</span></div>
-                  {state.tasks.length
-                    ? <ul className="list"><AnimatePresence initial={false}>{state.tasks.slice(0, 5).map(t => <DirectiveItem key={t.id} task={t} agent={agentById(t.agent_id)} busy={busy} onComplete={id => void act(() => api.completeTask(id), 'Directive marked complete.')} />)}</AnimatePresence></ul>
-                    : <div className="empty">No directives yet. Give Zeus a goal to begin.<br /><Button variant="outline" size="sm" onClick={() => setCommandOpen(true)}>Create your first directive</Button></div>}
-                </section>
-                <section className="glass panel-pad" aria-labelledby="act-title">
-                  <div className="panel-head"><h2 id="act-title">Recent activity</h2></div>
-                  {state.events.length
-                    ? <ul className="list"><AnimatePresence initial={false}>{state.events.slice(0, 5).map(e => <ActivityItem key={e.id} event={e} agent={agentById(e.agent_id)} />)}</AnimatePresence></ul>
-                    : <p className="empty">Nothing has happened yet.</p>}
-                </section>
               </div>
+              {!loaded
+                ? Array.from({ length: 2 }, (_, i) => <span key={i} className="skeleton god-skeleton" aria-hidden="true" />)
+                : visibleAgents.length
+                  ? visibleAgents.map(a => <GodRow key={a.id} agent={a} index={state.agents.indexOf(a)} task={taskFor(state.tasks, a.id)} onOpen={openAgent} />)
+                  : <p className="empty">No agents are {filter} right now.</p>}
+            </section>
+
+            <div className="work">
+              <section className="glass panel-pad" aria-labelledby="dir-title">
+                <div className="panel-head"><h2 id="dir-title">Directives</h2><span className="mono count">{pad(state.tasks.length)}</span></div>
+                {state.tasks.length
+                  ? <ul className="list"><AnimatePresence initial={false}>{state.tasks.slice(0, 5).map(t => <DirectiveItem key={t.id} task={t} agent={agentById(t.agent_id)} busy={busy} onComplete={id => void act(() => api.completeTask(id), 'Directive marked complete.')} />)}</AnimatePresence></ul>
+                  : <div className="empty">No directives yet. Give Zeus a goal to begin.<br /><Button variant="outline" size="sm" onClick={() => setCommandOpen(true)}>Create your first directive</Button></div>}
+              </section>
+              <section className="glass panel-pad" aria-labelledby="act-title">
+                <div className="panel-head"><h2 id="act-title">Recent activity</h2></div>
+                {state.events.length
+                  ? <ul className="list"><AnimatePresence initial={false}>{state.events.slice(0, 5).map(e => <ActivityItem key={e.id} event={e} agent={agentById(e.agent_id)} />)}</AnimatePresence></ul>
+                  : <p className="empty">Nothing has happened yet.</p>}
+              </section>
             </div>
+
+            <section className="voyage" aria-label="Start a directive">
+              <h2 className="sr-only">Direct your pantheon.</h2>
+              <div className="voyage-text" data-god="text" data-text="Direct your pantheon." aria-hidden="true" />
+              <div className="voyage-sea" data-god="sea" aria-hidden="true" />
+              <div className="voyage-cta"><Button onClick={() => setCommandOpen(true)}><Plus size={15} aria-hidden="true" /> New directive</Button></div>
+            </section>
+            <p className="console-foot">Built for many minds. Designed for one purpose.</p>
           </div>
         )}
         </motion.div>

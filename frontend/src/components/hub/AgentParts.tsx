@@ -3,36 +3,24 @@ import { motion } from 'motion/react'
 import { SPRING } from '../../lib/motion'
 import { relativeTime, statusText } from '../../lib/format'
 import type { ActivityEvent, Agent, AgentId, AgentTask } from '../../types'
-import { agentHint, agentIcons } from './agentMeta'
+import { agentHint } from './agentMeta'
 
 export function StatusLabel({ status }: { status: Agent['status'] }) {
   return <span className="status"><i className={`dot dot--${status}`} aria-hidden="true" />{statusText[status]}</span>
 }
 
-function Glyph({ id }: { id: AgentId }) {
-  const Icon = agentIcons[id]
-  return <span className="glyph" aria-hidden="true"><Icon size={16} strokeWidth={1.6} /></span>
-}
-
-/** Stage list item: a quiet row, not a card, because it already lives inside the stage panel. */
-export function AgentNode({ agent, task, onOpen }: { agent: Agent; task?: AgentTask; onOpen: (id: AgentId) => void }) {
+/** One agent: its emblem (drawn in dots behind it by DotField) beside its name, state and current work. */
+export function GodRow({ agent, task, index, onOpen }: { agent: Agent; task?: AgentTask; index: number; onOpen: (id: AgentId) => void }) {
   return (
-    <button type="button" className="node" onClick={() => onOpen(agent.id)} aria-label={`Open ${agent.name}, ${statusText[agent.status]}`}>
-      <Glyph id={agent.id} />
-      <span className="node-text"><b>{agent.name}</b><small>{task?.title ?? agentHint[agent.id]}</small></span>
-      <i className={`dot dot--${agent.status}`} aria-hidden="true" />
-    </button>
-  )
-}
-
-export function AgentRow({ agent, task, onOpen }: { agent: Agent; task?: AgentTask; onOpen: (id: AgentId) => void }) {
-  return (
-    <button type="button" className="agent-row" onClick={() => onOpen(agent.id)}>
-      <Glyph id={agent.id} />
-      <span className="agent-row-name"><b>{agent.name}</b><small>{agent.role}</small></span>
-      <span className="agent-row-task">{task?.title ?? (agent.id === 'zeus' ? 'Overseeing the pantheon' : 'No active directive')}</span>
-      <StatusLabel status={agent.status} />
-      <ArrowUpRight className="agent-row-arrow" size={16} aria-hidden="true" />
+    <button type="button" className="god" onClick={() => onOpen(agent.id)} aria-label={`Open ${agent.name}, ${statusText[agent.status]}`}>
+      <div className="god-anchor" data-god={agent.id} aria-hidden="true" />
+      <div className="god-info">
+        <span className="label">{String(index + 1).padStart(2, '0')} / {agentHint[agent.id]}</span>
+        <b>{agent.name}</b>
+        <p>{agent.description}</p>
+        <span className="status"><i className={`dot dot--${agent.status}`} aria-hidden="true" />{statusText[agent.status]}{task ? ` · ${task.title}` : ''}</span>
+        <span className="god-open">Open {agent.name} <ArrowUpRight size={14} aria-hidden="true" /></span>
+      </div>
     </button>
   )
 }

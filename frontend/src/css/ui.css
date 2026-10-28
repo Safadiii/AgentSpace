@@ -104,5 +104,5 @@
 @media (prefers-reduced-motion: reduce) {
   .ui-dialog { translate: -50% 0 !important; scale: 1 !important; filter: none !important; }
   .ui-dialog--sheet { translate: 0 0 !important; }
-  .chip:active, .btn:active:not(:disabled), .done-btn:active, .pill button:active, .node:active, .agent-row:active { transform: none; }
+  .chip:active, .btn:active:not(:disabled), .done-btn:active, .pill button:active, .god:active { transform: none; }
 }

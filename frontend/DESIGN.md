@@ -1,7 +1,7 @@
 # AgentSpace UI — design notes
 
 **Thesis:** a quiet operations console. Hairline-framed dark glass, neutral white, and colour reserved for state
-(working / available / idle / paused). One authored moment: a slow line field behind the console.
+(working / available / idle / paused). One authored moment: the Greek pantheon drawn in ordered-dither dots behind the console (inspired by maritime.sh's dot-matrix imagery).
 
 ## Decisions
 - Product name is **AgentSpace**; agents keep their names and Lucide icons (Crown, BookOpen, Feather, Hammer).
@@ -9,7 +9,7 @@
 - Mono type is for data only (counts, times, status), never decorative system IDs.
 - Surfaces: `.glass` panels only at the top level. Rows inside a panel use hairlines, not nested cards.
 - Dialogs and the agent sheet use the base-ui Dialog (focus trap, Escape, aria). Tailwind is not loaded; styles are plain CSS.
-- Dark is default; light via the nav toggle, persisted under `agentspace:theme`. The line field is dark-only and static under reduced motion.
+- Dark is default; light via the nav toggle, persisted under `agentspace:theme`. The dot field works in both themes and is drawn still under reduced motion.
 
 ## Files
 - `src/css/tokens.css` colour, type, radius, motion tokens (dark + light)
@@ -34,3 +34,10 @@ Principles were extracted; no layouts, copy or assets were copied. Screenshots w
 - **Accessibility:** `prefers-reduced-motion` cross-fades (Motion `reducedMotion="user"`, no travel or scale in CSS); `prefers-reduced-transparency` makes surfaces solid; `prefers-contrast: more` raises borders and text contrast.
 - **Type:** text sizes are `rem` so they follow the browser's text-size setting; tight tracking on large headings, near zero on body.
 - Kept Geist as the brand face rather than the system font.
+
+## Dot Pantheon (console background)
+- `src/lib/dotShapes.ts` greyscale shapes: temple, Zeus (bolt), Athena (owl), Hermes (caduceus), Hephaestus (anvil and hammer), trireme.
+- `src/lib/dotField.ts` engine: one fixed canvas draws every `[data-god]` element as ordered-dither dots. Shapes assemble from scattered dots as they near the middle of the viewport and disperse as they leave, drift against the scroll, and dots near the pointer brighten and shift. `data-god="sea"` draws wave rows with a trireme that sails as you scroll past; `data-god="text"` renders `data-text` in dots.
+- `src/components/shell/DotField.tsx` mounts it only on the console route. The canvas and anchors are `aria-hidden`; all content stays real HTML.
+- Reduced motion: shapes are drawn assembled and still and only redraw on scroll, resize and pointer events. Dots use finer gaps below 700px.
+- To add a god or shape: add a draw function in `dotShapes.ts`, then place an element with `data-god="<name>"`.
