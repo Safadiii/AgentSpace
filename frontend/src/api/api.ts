@@ -15,7 +15,7 @@ function seed(): HubState {
       { id: 'hephaestus', name: 'Hephaestus', role: 'Engineering', description: 'Builds tools, writes code, and automates workflows.', status: 'available', updated_at: now },
     ],
     tasks: [],
-    events: [{ id: uid(), agent_id: 'zeus', message: 'Olympus initialized. Your agents are ready.', created_at: now }],
+    events: [{ id: uid(), agent_id: 'zeus', message: 'AgentSpace initialized. Your agents are ready.', created_at: now }],
   }
 }
 

@@ -31,6 +31,7 @@ export interface PaperDetailedRead {
   openalex_id: string
   title: string
   abstract: string | null
+  pdf_url?: string | null
   publication_year?: number | null
   authors?: PaperAuthorRead[]
   topics?: PaperTopicRead[]

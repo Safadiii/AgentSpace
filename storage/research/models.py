@@ -186,6 +186,30 @@ class PaperTopic(SQLModel, table=True):
 
     paper: Paper = Relationship(back_populates="topics")
 
+class RecommendationItem(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "recommendation_items"
+    __table_args__ = (
+        UniqueConstraint("run_id", "rank", name="uq_recommendation_run_rank"),
+        UniqueConstraint("run_id", "paper_id", name="uq_recommendation_run_paper"),
+        CheckConstraint("`rank` >= 1", name="ck_recommendation_rank_positive"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(foreign_key="recommendation_runs.id", index=True)
+    paper_id: int = Field(foreign_key="papers.id", index=True)
+    rank: int = Field(ge=1)
+    relevance_score: float
+    score_breakdown: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(MutableDict.as_mutable(JSON), nullable=False),
+    )
+    explanation: str | None = Field(default=None, max_length=4000)
+
+    run: "RecommendationRun" = Relationship(back_populates="items")
+    paper: Paper = Relationship(back_populates="recommendation_items")
+    interactions: list["PaperInteraction"] = Relationship(
+        back_populates="recommendation_item"
+    )
 
 class RecommendationRun(SQLModel, table=True):
     __tablename__: ClassVar[Any] = "recommendation_runs"
@@ -211,30 +235,7 @@ class RecommendationRun(SQLModel, table=True):
     items: list[RecommendationItem] = Relationship(back_populates="run")
 
 
-class RecommendationItem(SQLModel, table=True):
-    __tablename__: ClassVar[Any] = "recommendation_items"
-    __table_args__ = (
-        UniqueConstraint("run_id", "rank", name="uq_recommendation_run_rank"),
-        UniqueConstraint("run_id", "paper_id", name="uq_recommendation_run_paper"),
-        CheckConstraint("`rank` >= 1", name="ck_recommendation_rank_positive"),
-    )
 
-    id: int | None = Field(default=None, primary_key=True)
-    run_id: int = Field(foreign_key="recommendation_runs.id", index=True)
-    paper_id: int = Field(foreign_key="papers.id", index=True)
-    rank: int = Field(ge=1)
-    relevance_score: float
-    score_breakdown: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(MutableDict.as_mutable(JSON), nullable=False),
-    )
-    explanation: str | None = Field(default=None, max_length=4000)
-
-    run: RecommendationRun = Relationship(back_populates="items")
-    paper: Paper = Relationship(back_populates="recommendation_items")
-    interactions: list[PaperInteraction] = Relationship(
-        back_populates="recommendation_item"
-    )
 
 
 class PaperInteraction(SQLModel, table=True):

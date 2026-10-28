@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Bookmark,
-  Check, ChevronDown, Command, Compass, Copy, Crown,
+  Check, ChevronDown, Command, Compass, Copy,
   FileText, Folder, FolderPlus,
   MessageCircle, NotebookPen,
   PanelRightClose, PanelRightOpen, Plus, Search, Sparkles, X, BookText, RefreshCw
@@ -67,7 +67,7 @@ function pdfLink(url?: string | null): string | undefined {
   return value && /^https?:\/\//i.test(value) ? value : undefined
 }
 
-function toPaper(p: PaperRead, detail: PaperDetailedRead | undefined, prefs: LocalPreferences, abstracts: Record<string, string>): Paper {
+function toPaper(p: PaperRead, detail: PaperDetailedRead | undefined, prefs: LocalPreferences): Paper {
   const id = String(p.id)
   return {
     id,
@@ -99,7 +99,7 @@ const actionInfo: Record<ResearchAction, { label: string; description: string }>
   collection: { label: 'Save to collection', description: 'Organize this paper in your library.' },
 }
 
-export default function ResearchPage({ onBack }: { onBack: () => void }) {
+export default function ResearchPage() {
   const [papers, setPapers] = useState<Paper[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -170,7 +170,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
       catch (error) { if (signal?.aborted) throw error }
       if (signal?.aborted) return
       const detailMap = new Map(detail.map(item => [item.id, item]))
-      const mapped = basic.map(p => toPaper(p, detailMap.get(p.id), preferencesRef.current, abstractsRef.current))
+      const mapped = basic.map(p => toPaper(p, detailMap.get(p.id), preferencesRef.current))
       setPapers(old => offset === 0 ? mapped : [...old.filter(p => !mapped.some(m => m.id === p.id)), ...mapped])
       setHasMore(basic.length === PAGE_SIZE)
     } catch (error) {
@@ -453,27 +453,15 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
   ] as const
 
   return (
-    <div className="research-os">
-      <div className="research-scene" aria-hidden="true" />
-      <header className="research-topbar">
-        <button type="button" className="research-breadcrumb" onClick={onBack} aria-label="Return to Olympus">
-          <span className="research-brand-emblem"><Crown size={20} strokeWidth={1.55} /></span>
-          <span className="research-brand-name">Olympus</span>
-          <span className="research-breadcrumb-slash">/</span>
-          <span className="research-breadcrumb-current">Research</span>
-        </button>
-        <div className="research-global-search">
-          <Search size={17} strokeWidth={1.8} />
-          <Input ref={searchRef} aria-label="Search your library" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search your research library..." className="research-search-input" />
-          <kbd><Command size={12} /> K</kbd>
-        </div>
-        <div className="research-header-right">
-          <span className="research-header-identity"><Sparkles size={15}/> Athena's library</span>
-        </div>
-      </header>
+    <div className="research">
 
-      <main className={layoutClass}>
+      <div className={layoutClass}>
         <aside className={`research-library research-surface ${mobileLibrary ? 'research-library--open' : ''}`} aria-label="Library navigation">
+          <div className="research-global-search">
+            <Search size={15} strokeWidth={1.8} aria-hidden="true" />
+            <Input ref={searchRef} aria-label="Search your library" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search library" className="research-search-input" />
+            <kbd className="kbd"><Command size={10} aria-hidden="true" />K</kbd>
+          </div>
           <div className="research-library-heading"><h2>Library</h2></div>
           <nav className="research-nav" aria-label="Research library">
             <button type="button" className={view === 'all' ? 'research-nav-row active' : 'research-nav-row'} onClick={() => chooseView('all')}><BookOpen size={17}/> All Papers <span>{papers.length}</span></button>
@@ -576,9 +564,8 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
           {selected && <div className="research-paper-details"><span className="research-aside-eyebrow">PAPER DETAILS</span><div><FileText size={16}/><span>{selected.year || '—'} publication year</span></div><div><Folder size={16}/><span>{selected.collection || 'No collection'}</span></div></div>}
           </> : <button type="button" className="research-agent-rail" aria-label="Expand Research Agent" title="Expand Research Agent" onClick={() => setAgentOpen(true)}><PanelRightOpen size={18}/><span className="research-ai-mark"><Sparkles size={16} strokeWidth={1.5}/></span><span className="research-agent-rail-label">Research Agent</span></button>}
         </aside>}
-      </main>
+      </div>
 
-      <footer className="research-footer"><span>OLYMPUS / ATHENA</span><span>Research, in harmony.</span><button type="button" onClick={onBack}><ArrowLeft size={14}/> Return to Olympus</button></footer>
 
       <ResearchResultsModal
         open={resultsOpen}
@@ -593,7 +580,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="research-dialog">
-          <DialogHeader><div className="research-dialog-icon"><Plus size={21}/></div><DialogTitle>Add paper</DialogTitle><DialogDescription>Save a paper to your FastAPI database. Your current API requires its OpenAlex ID and title.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Add paper</DialogTitle><DialogDescription>Save a paper to your FastAPI database. Your current API requires its OpenAlex ID and title.</DialogDescription></DialogHeader>
           <form className="research-form" onSubmit={e => void addPaper(e)}>
             <div className="research-field"><label htmlFor="api-paper-title">Paper title</label><Input id="api-paper-title" required maxLength={2000} value={addTitle} onChange={e => setAddTitle(e.target.value)} placeholder="Paper title"/></div>
             <div className="research-field"><label htmlFor="api-openalex">OpenAlex ID</label><Input id="api-openalex" required maxLength={255} value={addOpenAlex} onChange={e => setAddOpenAlex(e.target.value)} placeholder="https://openalex.org/W..."/></div>
@@ -605,7 +592,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
 
       <Dialog open={researchOpen} onOpenChange={setResearchOpen}>
         <DialogContent className="research-dialog">
-          <DialogHeader><div className="research-dialog-icon"><Search size={21}/></div><DialogTitle>New research</DialogTitle><DialogDescription>Describe a topic and Athena will discover relevant papers and save them to your library.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>New research</DialogTitle><DialogDescription>Describe a topic and Athena will discover relevant papers and save them to your library.</DialogDescription></DialogHeader>
           <form className="research-form" onSubmit={e => void launchResearch(e)}>
             <div className="research-field">
               <label htmlFor="api-research-topic">Research topic</label>
@@ -621,7 +608,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
       </Dialog>
 
       <Dialog open={newCollectionOpen} onOpenChange={open => { setNewCollectionOpen(open); if (!open) setNewCollectionName('') }}>
-        <DialogContent className="research-dialog"><DialogHeader><div className="research-dialog-icon"><FolderPlus size={21}/></div><DialogTitle>New collection</DialogTitle><DialogDescription>Organize papers locally. Your API does not yet provide collection persistence.</DialogDescription></DialogHeader>
+        <DialogContent className="research-dialog"><DialogHeader><DialogTitle>New collection</DialogTitle><DialogDescription>Organize papers locally. Your API does not yet provide collection persistence.</DialogDescription></DialogHeader>
           <form className="research-form" onSubmit={createCollection}>
             <div className="research-field"><label htmlFor="new-collection-name">Collection name</label><Input id="new-collection-name" autoFocus value={newCollectionName} onChange={e => setNewCollectionName(e.target.value)} placeholder="e.g. Reinforcement Learning" required /></div>
             <DialogFooter><Button type="button" variant="ghost" onClick={() => setNewCollectionOpen(false)}>Cancel</Button><Button type="submit" disabled={!newCollectionName.trim()}><Plus size={15}/> Create collection</Button></DialogFooter>
@@ -630,7 +617,7 @@ export default function ResearchPage({ onBack }: { onBack: () => void }) {
       </Dialog>
 
       <Dialog open={action !== null} onOpenChange={open => { if (!open) setAction(null) }}>
-        <DialogContent className="research-dialog"><DialogHeader><div className="research-dialog-icon"><Sparkles size={21}/></div><DialogTitle>{action ? actionInfo[action].label : ''}</DialogTitle><DialogDescription>{action ? actionInfo[action].description : ''} {action !== 'collection' && 'This action has no corresponding backend endpoint yet. You can copy its instruction.'}</DialogDescription></DialogHeader>
+        <DialogContent className="research-dialog"><DialogHeader><DialogTitle>{action ? actionInfo[action].label : ''}</DialogTitle><DialogDescription>{action ? actionInfo[action].description : ''} {action !== 'collection' && 'This action has no corresponding backend endpoint yet. You can copy its instruction.'}</DialogDescription></DialogHeader>
           {action === 'collection' ? <div className="research-action-form"><label htmlFor="collection-name">Collection</label><Input id="collection-name" value={draftCollection} onChange={e => setDraftCollection(e.target.value)} placeholder="Collection name"/><div className="research-collection-suggestions">{collections.map(c => <button key={c} className={draftCollection === c ? 'is-active' : ''} type="button" onClick={() => setDraftCollection(c)}><Folder size={13}/>{c}</button>)}</div><DialogFooter><Button variant="ghost" onClick={() => setAction(null)}>Cancel</Button><Button onClick={saveCollection} disabled={!draftCollection.trim()}>Save to collection</Button></DialogFooter></div> : action ? <div className="research-action-form">
             {action === 'ask' && <><label htmlFor="ask-question">Your question</label><textarea className="research-dialog-textarea" id="ask-question" rows={3} value={question} onChange={e => setQuestion(e.target.value)} placeholder="What assumptions does this method make?"/></>}
             {action === 'compare' && <><label htmlFor="compare-paper">Compare with</label><select id="compare-paper" className="research-dialog-select" value={compared?.id ?? ''} onChange={e => setCompareId(e.target.value)}>{otherPapers.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></>}

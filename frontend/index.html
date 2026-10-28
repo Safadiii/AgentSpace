@@ -1,11 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#e6eff7" />
-    <meta name="description" content="Olympus — an elegant command center for your AI agents." />
-    <title>Olympus — The Pantheon</title>
+    <meta name="theme-color" content="#070809" />
+    <meta name="description" content="AgentSpace — a calm console for your AI agents and research." />
+    <title>AgentSpace</title>
+    <script>
+      try { var t = localStorage.getItem('agentspace:theme'); document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark' } catch (e) { document.documentElement.dataset.theme = 'dark' }
+    </script>
   </head>
   <body>
     <div id="root"></div>

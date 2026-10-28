@@ -41,8 +41,6 @@ export interface ResearchResultsModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   run: ResultsRun | null
-  /** Backend user the impressions are recorded for. When null, no impressions are recorded. */
-  userId: number | null
   collections: string[]
   savedPaperIds: Set<string>
   paperCollections: Record<string, string>
@@ -60,7 +58,6 @@ export default function ResearchResultsModal({
   open,
   onOpenChange,
   run,
-  userId,
   collections,
   savedPaperIds,
   paperCollections,
@@ -93,7 +90,7 @@ export default function ResearchResultsModal({
   const visibleKey = visiblePapers.map(paper => paper.id).join(',')
 
   useEffect(() => {
-    if (!open || !scrollEl || !run || userId == null) return
+    if (!open || !scrollEl || !run) return
     if (recordedRef.current === null) recordedRef.current = readRecordedImpressions()
     const recorded = recordedRef.current
     const byId = new Map(papers.map(paper => [paper.id, paper]))
@@ -104,7 +101,6 @@ export default function ResearchResultsModal({
       inflightRef.current.add(key)
       try {
         await researchApi.interaction(paper.id, {
-          user_id: userId!,
           action: 'IMPRESSION',
           source_agent: IMPRESSION_SOURCE,
           recommendation_item_id: paper.recommendation_item_id ?? null,
@@ -132,7 +128,7 @@ export default function ResearchResultsModal({
     }, { root: scrollEl, threshold: 0.5 })
     scrollEl.querySelectorAll('[data-paper-id]').forEach(element => observer.observe(element))
     return () => observer.disconnect()
-  }, [open, scrollEl, run?.run_id, userId, visibleKey, papers])
+  }, [open, scrollEl, run?.run_id, visibleKey, papers])
 
   function toggleExpanded(id: number) {
     setExpanded(previous => {
