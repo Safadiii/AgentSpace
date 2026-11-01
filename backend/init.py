@@ -28,6 +28,7 @@ engine = create_engine(
 
 def init_db():
     import storage.research.models
+    import storage.hermes.models
 
     SQLModel.metadata.create_all(engine)
 

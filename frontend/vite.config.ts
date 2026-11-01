@@ -14,6 +14,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/hermes': { target: 'http://127.0.0.1:8000', changeOrigin: true },
       // '/research' is both the API prefix and an app route: browser page loads stay with the SPA.
       '/research': {
         target: 'http://127.0.0.1:8000',

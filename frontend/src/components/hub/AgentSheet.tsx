@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/dia
 import { useDragToDismiss } from '../../hooks/useDragToDismiss'
 import type { Agent, AgentTask } from '../../types'
 import { StatusLabel } from './AgentParts'
+import ProtectedSenders from '../hermes/ProtectedSenders'
 
 interface Props {
   agent: Agent | undefined
@@ -48,6 +49,8 @@ export default function AgentSheet({ agent, task, open, busy, onOpenChange, onSu
             <Button variant="outline" onClick={onOpenResearch}><BookOpen size={15} aria-hidden="true" /> Open research library <ArrowRight size={14} aria-hidden="true" /></Button>
           )}
         </div>
+
+        {agent.id === 'hermes' && <ProtectedSenders />}
 
         <form className="sheet-form" onSubmit={submit}>
           <div className="field">

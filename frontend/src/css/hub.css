@@ -106,3 +106,16 @@
   .pill-nav button { padding: 8px 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .god, .god-open { transition: none; } }
+
+/* hermes: protected senders (inside the agent sheet) */
+.protected { display: grid; gap: 12px; margin: 22px 0; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.protected-hint, .protected-empty { margin: 0; color: var(--t2); font-size: 0.8125rem; line-height: 1.5; }
+.protected-empty { color: var(--t3); }
+.protected-form { display: flex; gap: 8px; align-items: center; }
+.protected-form .input { flex: 1; min-width: 0; }
+.protected-error { margin: 0; color: var(--danger); font-size: 0.8125rem; line-height: 1.4; }
+.protected-list { list-style: none; margin: 0; padding: 0; }
+.protected-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.protected-row:first-child { border-top: 0; }
+.protected-value { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 400 0.8125rem/1.4 var(--font-mono); }
+.protected-remove { width: 32px; min-height: 32px; }
