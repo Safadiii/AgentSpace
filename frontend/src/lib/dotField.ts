@@ -21,7 +21,7 @@ interface Dot {
   color?: string
   colorAlpha?: number
   extra?: boolean
-  glow?: 'violet' | 'electric' | 'ember'
+  glow?: 'violet' | 'electric' | 'ember' | 'gold'
   green?: boolean
 }
 
@@ -38,6 +38,36 @@ const BAYER = [
 const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v))
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 const ease = (v: number) => 1 - (1 - v) ** 3
+
+const ATHENA_BOX_RATIO = 274 / 342
+function athenaBox(width: number, height: number) {
+  const maxW = width * .72
+  const boxHeight = Math.min(height * .92, maxW / ATHENA_BOX_RATIO)
+  const boxWidth = boxHeight * ATHENA_BOX_RATIO
+  return { x: (width - boxWidth) / 2, y: (height - boxHeight) / 2, width: boxWidth, height: boxHeight }
+}
+
+const HERMES_BOX_RATIO = 484 / 490
+function hermesBox(width: number, height: number) {
+  const maxW = width * .83
+  const boxHeight = Math.min(height * .88, maxW / HERMES_BOX_RATIO)
+  const boxWidth = boxHeight * HERMES_BOX_RATIO
+  return { x: (width - boxWidth) / 2, y: (height - boxHeight) / 2, width: boxWidth, height: boxHeight }
+}
+
+const ZEUS_BOX_RATIO = 750 / 580
+function zeusBox(width: number, height: number) {
+  const boxWidth = Math.min(width * .93, height * .86 * ZEUS_BOX_RATIO)
+  const boxHeight = boxWidth / ZEUS_BOX_RATIO
+  return { x: (width - boxWidth) / 2, y: (height - boxHeight) / 2, width: boxWidth, height: boxHeight }
+}
+
+const HEPHAESTUS_BOX_RATIO = 900 / 965
+function hephaestusBox(width: number, height: number) {
+  const boxHeight=Math.min(height*.90,width*.90/HEPHAESTUS_BOX_RATIO)
+  const boxWidth=boxHeight*HEPHAESTUS_BOX_RATIO
+  return {x:(width-boxWidth)/2,y:(height-boxHeight)/2,width:boxWidth,height:boxHeight}
+}
 
 export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Variable') {
   const context = canvas.getContext('2d')
@@ -125,13 +155,32 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
           dot.green = isLeaf(dot.color)
 
           const nx = gx / width, ny = gy / height
-          if (name === 'athena' && Math.abs(ny - .33) < .08 &&
-              (Math.abs(nx - .4) < .08 || Math.abs(nx - .6) < .08)) {
-            dot.glow = 'violet'
-          } else if (name === 'zeus' && b > r * 1.22) {
-            dot.glow = 'electric'
-          } else if (name === 'hephaestus' && r > g * 1.15 && r > b * 1.5 && ny < .55) {
-            dot.glow = 'ember'
+          if (name === 'athena') {
+            const box = athenaBox(width, height)
+            const ax = (gx - box.x) / box.width
+            const ay = (gy - box.y) / box.height
+            if (ax >= 0 && ax <= 1 && ay >= 0 && ay <= 1) {
+              if (ax > .31 && ax < .63 && ay > .13 && ay < .23) dot.glow = 'gold'
+              else if (ax > .08 && ax < .3 && ay > .02 && ay < .24) dot.glow = 'ember'
+              else if (
+                (ax > .28 && ax < .76 && ay > .46 && ay < .96) ||
+                (ax > .26 && ax < .46 && ay > .61 && ay < .98)
+              ) dot.glow = 'gold'
+            }
+          } else if (name === 'hermes') {
+            const box = hermesBox(width, height)
+            const hx = (gx - box.x) / box.width, hy = (gy - box.y) / box.height
+            if (Math.hypot((hx - .165) * 1.1, hy - .795) < .053) dot.glow = 'gold'
+          } else if (name === 'zeus') {
+            if (r > 170 && g > 125 && b < 150) dot.glow = 'gold'
+            else if (r > 210 && g > 170 && b >= 140) dot.glow = 'gold'
+            else if (g > r * 1.13 && g > b * 1.08) dot.green = true
+        } else if (name === 'hephaestus') {
+            const hb=hephaestusBox(width,height)
+            const hx=(gx-hb.x)/hb.width, hy=(gy-hb.y)/hb.height
+            if ((hx>.33 && hx<.53 && hy<.19) ||
+                (hx>.46 && hx<.70 && hy>.22 && hy<.31) ||
+                (hx>.28 && hx<.55 && hy>.73 && hy<.84)) dot.glow='ember'
           }
         }
         if (isExtraDot) dot.extra = true
@@ -155,9 +204,7 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
     const clock = still ? 0 : t
     // Blink is a quick, infrequent closure. Unlike random animation, it
     // remains deterministic between frames and has no lifetime state.
-    const blink = name === 'athena' && !still && hover > .1
-      ? clamp(1 - Math.abs((clock + .8) % 5.2 - 3.3) / .15)
-      : 0
+    const blink = 0
 
     for (const d of dots) {
       const local = still ? 1 : clamp((p * 1.5 - d.delay) / .6)
@@ -179,14 +226,39 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
         if (name === 'temple' && d.green) {
           lx += Math.sin(clock * 1.7 + py * 18 + d.ph * .15) * 2.3 * hover
           ly += Math.sin(clock * 1.3 + px * 9) * .7 * hover
-        } else if (name === 'hermes' && py < .35 && Math.abs(px - .5) > .1) {
-          const wingTip = clamp((Math.abs(px - .5) - .1) / .36)
-          ly += Math.sin(clock * 5.6 + px * 5.1) * wingTip * 3.4 * hover
-          lx += Math.cos(clock * 4.6 + py * 7) * wingTip * .8 * hover
-        } else if (name === 'hermes' && py > .3 && py < .93 && d.green) {
-          lx += Math.sin(clock * 3.4 + py * 20) * 2.1 * hover
-        } else if (name === 'hephaestus' && py > .48 && py < .66) {
-          ly += Math.sin(clock * 3.3 + px * 14) * .9 * hover
+        } else if (name === 'hermes') {
+          const box = hermesBox(width, height)
+          const hx = (d.x - box.x) / box.width
+          const hy = (d.y - box.y) / box.height
+          if (d.green && hy < .46) {
+            // The laurel is alive, but its outline never drifts far.
+            lx += Math.sin(clock * 1.95 + hx * 14 + d.ph * .2) * 1.55 * hover
+            ly += Math.sin(clock * 1.45 + hy * 12 + d.ph * .2) * .9 * hover
+          } else if (hy > .56 && hy < .97 && hx > .15) {
+            // Cloth moves gently while leaving the face rigid.
+            lx += Math.sin(clock * 1.4 + hy * 12 + hx * 6) * 1.05 * hover
+            ly += Math.cos(clock * 1.25 + hx * 9) * .65 * hover
+          }
+        } else if (name === 'zeus') {
+          const box = zeusBox(width, height)
+          const zx = (d.x - box.x) / box.width
+          const zy = (d.y - box.y) / box.height
+          if (d.green && zy < .39) {
+            lx += Math.sin(clock * 1.6 + zx * 11 + d.ph * .1) * 1.1 * hover
+            ly += Math.sin(clock * 1.4 + zx * 9) * .55 * hover
+          } else if (d.glow === 'gold' && zy < .26) {
+            lx += Math.sin(clock * 12 + d.ph) * .75 * hover
+            ly += Math.cos(clock * 11 + d.ph) * .55 * hover
+          }
+        } else if (name === 'hephaestus') {
+          const hb=hephaestusBox(width,height)
+          const hx=(d.x-hb.x)/hb.width, hy=(d.y-hb.y)/hb.height
+          if (hy>.39 && hy<.73 && hx>.26 && hx<.63) {
+            lx+=Math.sin(clock*1.6+hy*13+d.ph*.15)*.9*hover
+          } else if (d.glow==='ember' && hy<.19) {
+            lx+=Math.sin(clock*5.1+d.ph)*.8*hover
+            ly+=Math.cos(clock*5.6+d.ph)*.6*hover
+          }
         } else if (name === 'trireme') {
           ly += Math.sin(clock * 1.9) * 1.45 * hover
           if (py > .1 && py < .4 && px > .26 && px < .73) {
@@ -231,6 +303,7 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
         let vitality = 1
         if (!still && d.glow === 'violet') vitality = .88 + .12 * Math.sin(t * 3.7 + d.ph)
         if (!still && d.glow === 'electric') vitality = .82 + .18 * Math.sin(t * 12 + d.ph) ** 2
+        if (!still && d.glow === 'gold') vitality = .86 + .14 * Math.sin(t * 4.2 + d.ph) ** 2
         // Plant foliage reveals upward from the base as though growing.
         if (name === 'temple' && d.green && d.y / height < .81 - hover * .44) continue
         if (name === 'athena' && d.glow === 'violet') vitality *= 1 - blink * .96
@@ -244,8 +317,9 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
         // Glow only a handful of significant colored dots, never every pixel.
         if (d.glow && hover > .12) {
           ctx.shadowColor = d.glow === 'violet' ? '#a263ff'
-            : d.glow === 'electric' ? '#32cfff' : '#ff6e28'
-          ctx.shadowBlur = (d.glow === 'violet' ? 14 : d.glow === 'electric' ? 10 : 7) * hover
+            : d.glow === 'electric' ? '#32cfff'
+            : d.glow === 'gold' ? '#ffe08a' : '#ff6e28'
+          ctx.shadowBlur = (d.glow === 'violet' ? 14 : d.glow === 'electric' ? 10 : d.glow === 'gold' ? 9 : 7) * hover
         }
         const colorSize = d.extra ? G * .36 : r
         ctx.fillRect(x - colorSize, y - colorSize, colorSize * 2, colorSize * 2)
@@ -284,52 +358,71 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
     }
   }
 
-  /** Athena — living eyes, irregular blink, gilded feathers and orbiting motes. */
+  /** Athena — robes reveal sacred light, crown glints, and the torch carries living fire. */
   function drawAthenaLiving(rect: DOMRect, hover: number, assembly: number) {
     const strength = clamp(hover * assembly)
     if (strength < .015) return
     const still = motion.matches, clock = still ? 0 : t, G = gap()
-    const px = (x: number) => rect.left + rect.width * x
-    const py = (y: number) => rect.top + rect.height * y
-    const blink = still ? 0 : clamp(1 - Math.abs((clock + .8) % 5.2 - 3.3) / .15)
-    const breathe = still ? .65 : .6 + .4 * Math.sin(clock * 3.4) ** 2
+    const box = athenaBox(rect.width, rect.height)
+    const left = rect.left + box.x, top = rect.top + box.y
+    const px = (x: number) => left + box.width * x
+    const py = (y: number) => top + box.height * y
 
-    for (const eyeX of [.4, .6]) {
-      const ex = px(eyeX), ey = py(.33)
-      if (blink > .3) {
-        // A tiny lid drawn with squares, not a filled graphic.
-        const close = Math.min(1, blink * 1.4)
-        trace(px(eyeX - .055), ey, px(eyeX + .055), ey,
-          G * .8, '#ddc9fa', strength * close * .98, G * .24)
-      } else {
-        const orbit = G * (1.0 + breathe * .34)
-        for (let i = 0; i < 12; i++) {
-          const a = i / 12 * Math.PI * 2 + clock * .65
-          const r = rect.width * .044 + orbit
-          pixel(ex + Math.cos(a) * r, ey + Math.sin(a) * r,
-            G * .16, i % 3 ? '#a872ff' : '#e0c7ff',
-            strength * (i % 3 ? .16 : .42) * breathe)
-        }
-        pixel(ex, ey, G * .32, '#f6ddff', strength * .6 * breathe)
-      }
+    // Crown glints and a sacred diadem shimmer.
+    for (const [x, y, k] of [[.392, .171, 0], [.488, .145, 1], [.577, .17, 2]] as const) {
+      const twinkle = still ? .32 : .12 + .88 * Math.sin(clock * (2.5 + k * .4) + k) ** 6
+      pixel(px(x), py(y), G * (.18 + k * .02), '#fff2c0', strength * twinkle)
+      pixel(px(x), py(y), G * .1, '#f2c96f', strength * (.3 + twinkle * .5))
     }
-
-    // Gold feather glints ripple downwards like a slow breath.
-    for (let i = 0; i < 17; i++) {
-      const row = Math.floor(i / 4), col = i % 4
-      const x = .34 + col * .105 + (row % 2) * .018
-      const y = .6 + row * .076
-      const shimmer = still ? .25 : Math.max(0, Math.sin(clock * 2.7 - row * .8 + col * .6)) ** 5
-      pixel(px(x), py(y), G * .22, '#f1d49b', strength * (.11 + .57 * shimmer))
-    }
-    // Very sparse purple wisdom motes, not a halo that crowds the silhouette.
     for (let i = 0; i < 9; i++) {
-      const a = i * 2.39996 + clock * .2
-      const spread = .29 + (i % 3) * .06
-      const x = px(.5 + Math.cos(a) * spread)
-      const y = py(.47 + Math.sin(a) * spread * .78)
-      const twinkle = still ? .27 : .15 + .65 * Math.sin(clock * 1.8 + i * 3) ** 4
-      pixel(x, y, G * .16, '#b79bff', strength * twinkle * .35)
+      const f = i / 8
+      const x = .345 + f * .267
+      const y = .198 - Math.sin(f * Math.PI) * .05
+      const sweep = still ? .18 : Math.max(0, Math.sin(clock * 2 + f * 5.6)) ** 5
+      pixel(px(x), py(y), G * .13, '#f0d68a', strength * (.08 + .32 * sweep))
+    }
+
+    // White-and-gold robe shimmer along garment folds.
+    const robePaths = [
+      [[.37, .5], [.435, .585], [.495, .668], [.563, .764], [.632, .858]],
+      [[.322, .646], [.34, .752], [.376, .865], [.416, .962]],
+      [[.53, .608], [.591, .669], [.651, .724]],
+      [[.344, .528], [.39, .612], [.445, .705], [.515, .806], [.59, .895]],
+    ] as const
+    robePaths.forEach((points, idx) => {
+      for (let i = 0; i < points.length; i++) {
+        const [x, y] = points[i]
+        const glow = still ? .22 : .08 + .92 * Math.sin(clock * 1.9 - idx * .5 + i * .7) ** 6
+        pixel(px(x), py(y), G * (i % 2 ? .19 : .22), i % 3 ? '#fff8ea' : '#e4be72', strength * (.08 + .5 * glow))
+      }
+      for (let i = 0; i < points.length - 1; i++) {
+        const [x0, y0] = points[i], [x1, y1] = points[i + 1]
+        trace(px(x0), py(y0), px(x1), py(y1), G * .72, idx % 2 ? '#fff6e3' : '#dfb566', strength * .22, G * .13)
+      }
+    })
+
+    // Warm pulse climbing the torch shaft.
+    for (let lane = 0; lane < 3; lane++) {
+      const prog = still ? (lane + 1) / 4 : (clock * .42 + lane / 3) % 1
+      const y = .66 - prog * .39
+      pixel(px(.237 + (lane - 1) * .006), py(y), G * .18,
+        lane === 1 ? '#ffe9b0' : '#d7b066', strength * (.34 + .42 * Math.sin(prog * Math.PI)))
+    }
+    pixel(px(.237), py(.548), G * .27, '#fff0bf', strength * .46)
+
+    // Living torch head with flicker and upward sparks.
+    const flames = [[.135, .12], [.214, .07], [.276, .125]] as const
+    flames.forEach(([x, y], i) => {
+      const flicker = still ? .35 : .18 + .82 * Math.sin(clock * (4.8 + i * .9) + i) ** 4
+      pixel(px(x), py(y), G * (.18 + i * .03), i === 1 ? '#fff8df' : '#ffbf68', strength * flicker)
+      pixel(px(x), py(y - .028), G * .14, '#ff9f47', strength * flicker * .75)
+    })
+    for (let i = 0; i < 11; i++) {
+      const rise = still ? i / 11 : (clock * .55 + i / 11) % 1
+      const sway = Math.sin(i * 2.3 + clock * 3.6) * .014
+      const x = .205 + sway + (i % 3 - 1) * .022 * (1 - rise)
+      const y = .19 - rise * .17
+      pixel(px(x), py(y), G * .12, i % 2 ? '#ffd38b' : '#fff1c7', strength * (1 - rise) * .55)
     }
     ctx.globalAlpha = 1
   }
@@ -380,81 +473,117 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
     ctx.globalAlpha = 1
   }
 
-  /** Hermes — feather gusts, serpentine energy traveling along the staff. */
+  /** Hermes — living olive-green laurel, amber robe highlights and a gilded clasp. */
   function drawHermesLiving(rect: DOMRect, hover: number, assembly: number) {
     const strength = clamp(hover * assembly)
     if (strength < .015) return
     const still = motion.matches, clock = still ? 0 : t, G = gap()
-    const px = (x: number) => rect.left + rect.width * x
-    const py = (y: number) => rect.top + rect.height * y
-    for (const side of [-1, 1]) {
-      // Gust trails move away from the wing tips, drawn as disconnected dots.
-      for (let trail = 0; trail < 3; trail++) {
-        const phase = (still ? .45 : (clock * (.38 + trail * .09) + trail * .32) % 1)
-        for (let i = 0; i < 12; i++) {
-          const part = i / 11
-          const x = .5 + side * (.28 + phase * .15 + part * .1)
-          const y = .12 + trail * .055 + .018 * Math.sin(part * 7 - clock * 3 + trail)
-          const fade = Math.sin(part * Math.PI) * (1 - phase * .6)
-          pixel(px(x), py(y), G * .15,
-            trail % 2 ? '#d4f5f2' : '#e0c389', strength * fade * .45)
-        }
-      }
+    const box = hermesBox(rect.width, rect.height)
+    const px = (x: number) => rect.left + box.x + box.width * x
+    const py = (y: number) => rect.top + box.y + box.height * y
+
+    // Brief sunlight glints across individual leaves in the real traced crown.
+    const leaves: [number, number][] = [
+      [.234, .403], [.266, .355], [.213, .348], [.289, .3], [.231, .292],
+      [.34, .25], [.432, .261], [.489, .219], [.264, .235], [.383, .198],
+      [.683, .174], [.518, .173], [.442, .153], [.307, .179], [.584, .138],
+      [.515, .11], [.36, .128], [.662, .109], [.42, .089], [.61, .073],
+      [.484, .054], [.262, .132], [.549, .036],
+    ]
+    leaves.forEach(([x, y], i) => {
+      const glint = still ? .18 : Math.max(0, Math.sin(clock * 1.85 + i * .55)) ** 9
+      pixel(px(x), py(y), G * .17,
+        i % 4 ? '#b4d29b' : '#e3dda0', strength * (.07 + .49 * glint))
+    })
+
+    // A few floating pollen-like flecks, never a solid green overlay.
+    for (let i = 0; i < 9; i++) {
+      const phase = still ? (i + 1) / 10 : (clock * (.13 + i * .007) + i * .29) % 1
+      const driftX = .24 + (i % 5) * .1 + Math.sin(clock * 1.3 + i * 2) * .022
+      const driftY = .35 - phase * .27
+      pixel(px(driftX), py(driftY), G * .12,
+        i % 3 ? '#d5e9a6' : '#f1dca3', strength * (1 - phase) * .34)
     }
-    // A pulse ascends the central staff, from the intertwined serpents to the tip.
-    for (let lane = 0; lane < 3; lane++) {
-      const progress = still ? (lane + 1) / 4 : (clock * .29 + lane / 3) % 1
-      const y = .94 - progress * .77
-      const width = .008 + .007 * Math.sin(progress * Math.PI)
-      for (let n = -1; n <= 1; n++) {
-        pixel(px(.5 + n * width), py(y + n * .006), G * .19,
-          n === 0 ? '#f4e5b7' : '#97ddc5', strength * (.45 + .5 * Math.sin(progress * Math.PI)))
+
+    // Warm glints travel across real robe-fold lines in the lower silhouette.
+    const folds: [number, number][][] = [
+      [[.25, .742], [.32, .756], [.39, .755], [.49, .738], [.61, .692], [.75, .60]],
+      [[.25, .828], [.37, .849], [.52, .85], [.66, .812], [.77, .756]],
+      [[.27, .885], [.39, .919], [.52, .91], [.69, .871]],
+    ]
+    folds.forEach((fold, i) => {
+      const progress = still ? .47 : (clock * (.18 + i * .025) + i * .32) % 1
+      const segment = progress * (fold.length - 1)
+      const k = Math.min(fold.length - 2, Math.floor(segment))
+      const mix = segment - k
+      const x = lerp(fold[k][0], fold[k + 1][0], mix)
+      const y = lerp(fold[k][1], fold[k + 1][1], mix)
+      for (let j = -2; j <= 2; j++) {
+        const shine = 1 - Math.abs(j) / 3
+        pixel(px(x + j * .008), py(y + j * .002), G * .16,
+          j % 2 ? '#fff0c7' : '#ffd18d', strength * shine * .57)
       }
+    })
+
+    // Glowing gold clasp is just a ring of bright dots near the left shoulder.
+    const pulse = still ? .55 : .55 + .45 * Math.sin(clock * 2.7) ** 2
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * Math.PI * 2
+      pixel(px(.164 + Math.cos(a) * .047), py(.794 + Math.sin(a) * .045),
+        G * .15, i % 4 === 0 ? '#fff1bc' : '#e9b96a', strength * .48 * pulse)
     }
     ctx.globalAlpha = 1
   }
 
   /** Hephaestus — thermal distortion, heated anvil rim and impact ring. */
   function drawForgeHeat(rect: DOMRect, hover: number, assembly: number) {
-    const strength = clamp(hover * assembly)
-    if (strength < .015) return
-    const still = motion.matches, clock = still ? 0 : t, G = gap()
-    const px = (x: number) => rect.left + rect.width * x
-    const py = (y: number) => rect.top + rect.height * y
-    const originX = px(.3), originY = py(.46)
-    const cycle = still ? .05 : clock * 1.85 % 1
-    const shock = still ? .3 : Math.max(0, 1 - cycle * 3.8)
-
-    // Impact grows as a dotted shockwave then disappears.
-    if (shock > .015) {
-      const radius = rect.width * (.035 + cycle * .18)
-      for (let i = 0; i < 28; i++) {
-        const a = i / 28 * Math.PI * 2
-        pixel(originX + Math.cos(a) * radius,
-          originY + Math.sin(a) * radius * .52,
-          G * .18, i % 3 === 0 ? '#ffe6aa' : '#ff6e2e', strength * shock * .85)
+    const strength=clamp(hover*assembly)
+    if(strength<.015)return
+    const still=motion.matches,clock=still?0:t,G=gap()
+    const hb=hephaestusBox(rect.width,rect.height)
+    const px=(x:number)=>rect.left+hb.x+hb.width*x
+    const py=(y:number)=>rect.top+hb.y+hb.height*y
+    const ox=px(.418),oy=py(.796)
+    const cycle=still?.08:(clock*1.7)%1
+    const blast=still?.42:Math.max(0,1-cycle*4.2)
+    if(blast>.01){
+      const rx=hb.width*(.02+cycle*.135),ry=hb.height*(.018+cycle*.065)
+      for(let i=0;i<32;i++){
+        const a=i/32*Math.PI*2
+        pixel(ox+Math.cos(a)*rx,oy+Math.sin(a)*ry,G*.17,
+          i%3?'#ff9c3b':'#ffe9a5',strength*blast*.85)
       }
     }
-
-    // Heat travels along the top rim instead of glowing the entire anvil.
-    for (let i = 0; i < 20; i++) {
-      const fraction = i / 19
-      const shimmer = still ? .25 : Math.sin(clock * 7.3 - fraction * 10) ** 2
-      pixel(px(.18 + fraction * .68), py(.5) + Math.sin(fraction * 22 + clock * 5) * G * .15,
-        G * .23, i % 4 === 0 ? '#ffe2a2' : '#ff7c32',
-        strength * (.12 + .44 * shimmer))
+    // Hot anvil rim and molten metal. Consistent with the reference geometry.
+    for(let i=0;i<23;i++){
+      const f=i/22
+      const glow=still?.45:Math.sin(clock*6.5-f*13)**2
+      pixel(px(.215+f*.52),py(.82)+Math.sin(f*22+clock*6)*G*.15,G*.22,
+        i%4===0?'#fff0bf':'#fb7a32',strength*(.16+.50*glow))
     }
-    // Upward wisps ripple like hot air and occasionally shed small embers.
-    for (let i = 0; i < 20; i++) {
-      const seed = (i * .6180339) % 1
-      const progress = still ? seed * .4 : (clock * (.15 + i % 4 * .025) + seed) % 1
-      const x = .25 + (i % 8) * .06 + Math.sin(progress * 14 + clock * 2 + i) * .027
-      const y = .49 - progress * (.18 + (i % 3) * .04)
-      const visibility = (1 - progress) ** 2 * strength * (i % 4 === 0 ? .65 : .2)
-      pixel(px(x), py(y), G * (i % 5 === 0 ? .23 : .14),
-        i % 3 ? '#ff9e4b' : '#ffd98b', visibility)
+    // Heat rising from the strike and surrounding fiery arcs.
+    for(let i=0;i<27;i++){
+      const seed=(i*.61803398875)%1
+      const progress=still?seed*.5:(clock*(.14+(i%5)*.022)+seed)%1
+      const x=.418+(i%9-4)*.032+Math.sin(progress*12+i)*.016
+      const y=.79-progress*(.14+(i%4)*.025)
+      pixel(px(x),py(y),G*(i%6===0?.26:.13),i%3?'#ff9a3e':'#ffeab6',
+        strength*(1-progress)**2*(i%4===0?.76:.33))
     }
-    ctx.globalAlpha = 1
+    // Goggles: alternating orange lens twinkles (not solid rectangles).
+    for(const [x,y,k] of [[.591,.257,1],[.676,.281,2]] as const){
+      const glint=still?.35:Math.max(0,Math.sin(clock*(2.7+k*.6)+k))**6
+      pixel(px(x),py(y),G*.26,'#ffeec5',strength*(.18+.7*glint))
+    }
+    // Hammer: pulsing molten ridge, kept separate from the face.
+    for(let i=0;i<13;i++){
+      const f=i/12
+      const x=.364+f*.12
+      const y=.018+f*.11
+      const twinkle=still?.4:Math.max(0,Math.sin(clock*7-f*7))**4
+      pixel(px(x),py(y),G*.18,i%3===0?'#fff4d0':'#ff9e3d',strength*(.14+.6*twinkle))
+    }
+    ctx.globalAlpha=1
   }
 
   /** Trireme — sea spray, ocean glints and a breeze catching the sail. */
@@ -510,153 +639,104 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
    * The two passes put the soft aura BEHIND the broken crest and the crackling
    * arcs ABOVE it, without changing any of the other emblems.
    */
+  /** Zeus: bright gold weapon with branching cyan / gold charge. */
   function drawZeusElectricity(
     rect: DOMRect, hover: number, assembly: number, pass: 'aura' | 'arcs',
   ) {
     const power = clamp(hover * assembly)
     if (power < .015) return
-
     const still = motion.matches
     const clock = still ? 0 : t
     const G = gap()
-    const cx = rect.left + rect.width * .5
-    const cy = rect.top + rect.height * .5
-    const radius = rect.width * .46
-    const flicker = still ? 1 : .82 + .18 * Math.sin(clock * 17) ** 2
+    const box = zeusBox(rect.width, rect.height)
+    const px = (x: number) => rect.left + box.x + box.width * x
+    const py = (y: number) => rect.top + box.y + box.height * y
+    const pulse = still ? .65 : .55 + .45 * Math.sin(clock * 10.8) ** 2
 
-    if (pass === 'aura') {
-      // Rotating cyan fragments tracing outside broken gold crest segments.
-      // Square pixels keep the electrical field consistent with the dot art.
-      const count = Math.min(180, Math.max(46, Math.ceil(2 * Math.PI * radius / (G * 1.4))))
-      for (let i = 0; i < count; i++) {
-        const angle = i / count * Math.PI * 2
-        // Incomplete arcs frame the lightning, avoiding a closed medallion.
-        if (!((angle > .05 && angle < 1.05) ||
-          (angle > 2.28 && angle < 2.91) ||
-          (angle > 3.4 && angle < 4.65) ||
-          (angle > 5.12 && angle < 5.76))) continue
-        const wave = Math.max(0, Math.sin(angle * 7 - clock * 3.7)) ** 5
-        const ripple = Math.sin(angle * 13 + clock * 5.2) * G * .24
-        const x = cx + Math.cos(angle) * (radius + G * .72 + ripple)
-        const y = cy + Math.sin(angle) * (radius + G * .72 + ripple)
-        const opacity = power * flicker * (.055 + wave * .38)
-        const size = G * (.22 + wave * .15)
-        ctx.globalAlpha = opacity
-        ctx.fillStyle = i % 4 === 0 ? '#d9fbff' : '#1dbdff'
-        ctx.fillRect(x - size, y - size, size * 2, size * 2)
-      }
-      ctx.globalAlpha = 1
-      return
-    }
-
-    // Charge travels through short jagged paths branching away from the bolt.
-    // Geometry changes every ~90ms, like real lightning, rather than smoothly
-    // wiggling like a decorative sine wave.
-    const channels = [
-      [.27, .55, .09, .63],
-      [.74, .41, .92, .29],
-      [.66, .13, .77, .11],
-      [.37, .86, .21, .81],
-      [.48, .49, .30, .30],
-    ] as const
-
-    const crackle = (
-      x0: number, y0: number, x1: number, y1: number,
-      seed: number, intensity: number,
-    ) => {
-      const dx = x1 - x0, dy = y1 - y0
-      const distance = Math.hypot(dx, dy) || 1
-      const nx = -dy / distance, ny = dx / distance
-      const steps = Math.min(42, Math.max(4, Math.ceil(distance / (G * .8))))
-      const tick = still ? 0 : Math.floor(clock * 11 + seed * 4.7)
-      for (let k = 0; k <= steps; k++) {
-        const fraction = k / steps
-        const roughness = Math.sin((k * 12.989 + seed * 78.233 + tick * 18.173)) *
-          Math.sin(Math.PI * fraction) * G * 1.1
-        const x = x0 + dx * fraction + nx * roughness
-        const y = y0 + dy * fraction + ny * roughness
-        const tip = k % 5 === 0
-        const size = tip ? G * .24 : G * .16
-        ctx.globalAlpha = power * intensity * (tip ? .95 : .7)
-        ctx.fillStyle = tip ? '#f2ffff' : '#46d9ff'
-        ctx.fillRect(x - size, y - size, size * 2, size * 2)
-        // Just a few highlights get a soft glow instead of shadowing every dot.
-        if (tip && k % 10 === 0) {
-          ctx.globalAlpha = power * intensity * .15
-          ctx.fillStyle = '#35c8ff'
-          const glowSize = G * .75
-          ctx.fillRect(x - glowSize, y - glowSize, glowSize * 2, glowSize * 2)
+    const arc = (path: readonly (readonly [number, number])[], color: string, alpha: number, seed: number) => {
+      const tick = still ? 0 : Math.floor(clock * 12.5 + seed)
+      for (let i = 0; i < path.length - 1; i++) {
+        const [ax,ay] = path[i], [bx,by] = path[i+1]
+        const x0=px(ax), y0=py(ay), x1=px(bx), y1=py(by)
+        const len = Math.hypot(x1-x0,y1-y0) || 1
+        const nx=-(y1-y0)/len, ny=(x1-x0)/len
+        const count = Math.max(2, Math.ceil(len / Math.max(2,G*.83)))
+        for (let k=0; k<=count; k++) {
+          const f=k/count
+          const drift = still ? 0 : Math.sin((k+1)*9.43+tick*7.31+seed) * Math.sin(f*Math.PI) * G*.8
+          const x=x0+(x1-x0)*f+nx*drift, y=y0+(y1-y0)*f+ny*drift
+          const bright=k%5===0
+          pixel(x,y, G*(bright?.26:.19),bright?'#fffbda':color,power*alpha*(bright?1:.84))
+          if (bright && !still) pixel(x,y,G*.58,color,power*alpha*.18)
         }
       }
     }
-
-    channels.forEach(([ax, ay, bx, by], i) => {
-      const surge = still ? (i < 2 ? .8 : .35)
-        : Math.max(0, Math.sin(clock * (5.3 + i * .9) + i * 2.1)) ** 3
-      if (surge < .035) return
-      const x0 = rect.left + rect.width * ax
-      const y0 = rect.top + rect.height * ay
-      const x1 = rect.left + rect.width * bx
-      const y1 = rect.top + rect.height * by
-      crackle(x0, y0, x1, y1, i + 1, surge * flicker)
-
-      // A smaller fork emerges from selected arcs (no continuous line art).
-      if (i < 3 && surge > .3) {
-        const fraction = .42
-        const mx = lerp(x0, x1, fraction)
-        const my = lerp(y0, y1, fraction)
-        const spread = rect.width * .065
-        crackle(mx, my, mx + Math.cos(i * 2.3) * spread,
-          my + Math.sin(i * 2.3) * spread, 14 + i, surge * .58)
+    if (pass === 'aura') {
+      // Sparkles on the gold weapon. Never outline a circular crest.
+      arc([[.013,.24],[.108,.215],[.081,.164],[.221,.159]], '#ffe079', .39*pulse, 1)
+      arc([[.398,.109],[.464,.095],[.461,.033],[.542,.064],[.557,.004],[.695,.067]], '#ffda65', .43*pulse, 2)
+      // The laurel glints independently of the weapon.
+      for (let i=0;i<13;i++) {
+        const f=i/12
+        const x=.479+f*.194
+        const y=.301-.07*Math.sin(Math.PI*f)
+        const wave=still?.2:Math.max(0,Math.sin(clock*2.1+i*.64))**5
+        pixel(px(x),py(y),G*.14,'#d5e9a2',power*(.07+.42*wave))
       }
-    })
-
-    // Traveling ion sparks around the ring, brighter than the static corona.
-    for (let i = 0; i < 15; i++) {
-      const phase = i * 2.3999632
-      const angle = phase + (still ? 0 : clock * (.5 + (i % 3) * .22))
-      const orbit = radius * (.85 + .23 * ((i * .6180339) % 1))
-      const x = cx + Math.cos(angle) * orbit
-      const y = cy + Math.sin(angle) * orbit
-      const pulse = still ? .4 : .2 + .8 * Math.max(0, Math.sin(clock * 5.8 + i * 3.1)) ** 2
-      const size = G * (i % 4 === 0 ? .32 : .18)
-      ctx.fillStyle = i % 3 === 0 ? '#efffff' : '#59dfff'
-      ctx.globalAlpha = power * pulse * .85
-      ctx.fillRect(x - size, y - size, size * 2, size * 2)
+      ctx.globalAlpha=1
+      return
     }
-    ctx.globalAlpha = 1
+    // Off-figure discharge forks; jagged square-dot paths, not solid lines.
+    const discharges = [
+      {p:[[.15,.17],[.055,.098],[-.025,.118]],c:'#44caff',s:1.8},
+      {p:[[.58,.035],[.665,-.058],[.78,-.038]],c:'#99e6ff',s:2.5},
+      {p:[[.065,.24],[-.036,.34],[.047,.4]],c:'#52b9ff',s:3.2},
+      {p:[[.756,.33],[.845,.278],[.94,.33]],c:'#48ceff',s:4.1},
+      {p:[[.768,.60],[.87,.54],[.972,.6]],c:'#dfb85b',s:5.6},
+    ] as const
+    for (const v of discharges) {
+      const surge=still?.65:.48+.52*Math.max(0,Math.sin(clock*(4.3+v.s*.14)+v.s*1.8))**4
+      if (surge>.035) arc(v.p,v.c,surge*.83,v.s)
+    }
+    for(let i=0;i<24;i++) {
+      const r=(i*.61803398875)%1
+      const rise=still?r:(r+clock*(.2+(i%3)*.05))%1
+      const side=i%2?-1:1
+      const x=side<0?-.028+Math.sin(i*3.4+clock)*.04:.90+Math.cos(i*2.7+clock)*.04
+      const y=.16+rise*.64
+      const color=i%4===0?'#ffeeb9':i%2===0?'#5fd6ff':'#d4a453'
+      pixel(px(x),py(y),G*(i%7===0?.20:.105),color,power*(1-rise)*(.18+.38*pulse))
+    }
+    ctx.globalAlpha=1
   }
 
   /** Tiny deterministic, looping sparks originating near the hammer/anvil strike. */
-  function drawForgeSparks(rect: DOMRect, hover: number, assembly: number) {
-    const strength = hover * assembly
-    if (strength < .015) return
-    const originX = rect.left + rect.width * .3
-    const originY = rect.top + rect.height * .46
-    const still = motion.matches
-    const impactPhase = still ? .25 : (t * 1.85) % 1
-    const burst = still ? .35 : Math.max(0, 1 - impactPhase * 4)
-
-    for (let i = 0; i < 27; i++) {
-      // Each particle is recycled; no allocation or unbounded particle pool.
-      const seed = (i * .61803398875) % 1
-      const life = still ? seed * .58 : (t * (.64 + (i % 5) * .065) + seed) % 1
-      const spread = Math.sin(i * 2.39996) * (rect.width * (.09 + (i % 7) * .019))
-      const x = originX + spread * life
-      const y = originY - rect.height * (.08 + (i % 6) * .024) * life - rect.height * .15 * life * life
-      const visibility = (1 - life) ** 1.4 * strength * (.48 + .9 * burst)
-      if (visibility < .02) continue
-      const r = gap() * (i % 6 === 0 ? .4 : .22) * (1 - life * .42)
-      ctx.globalAlpha = visibility
-      ctx.fillStyle = ['#ff552e', '#ff892b', '#ffc15f', '#ffcc78'][i % 4]
-      if (i % 5 === 0 && hover > .3) {
-        ctx.shadowBlur = 9 * hover
-        ctx.shadowColor = '#ff702f'
-      }
-      ctx.fillRect(x - r, y - r, r * 2, r * 2)
-      ctx.shadowBlur = 0
+  function drawForgeSparks(rect:DOMRect,hover:number,assembly:number){
+    const strength=clamp(hover*assembly)
+    if(strength<.015)return
+    const hb=hephaestusBox(rect.width,rect.height)
+    const ox=rect.left+hb.x+hb.width*.418
+    const oy=rect.top+hb.y+hb.height*.795
+    const still=motion.matches,clock=still?0:t,G=gap()
+    const impact=still?.24:(clock*1.7)%1
+    const burst=still?.4:Math.max(0,1-impact*4)
+    for(let i=0;i<45;i++){
+      const seed=(i*.61803398875)%1
+      const life=still?seed*.58:(clock*(.53+(i%5)*.055)+seed)%1
+      const dx=Math.sin(i*2.39996)*hb.width*(.075+(i%9)*.021)
+      const dy=hb.height*(.09+(i%6)*.023)
+      const x=ox+dx*life
+      const y=oy-dy*life-hb.height*.16*life*life
+      const visibility=(1-life)**1.5*strength*(.47+1.05*burst)
+      if(visibility<.025)continue
+      const radius=G*(i%7===0?.32:.17)*(1-life*.35)
+      ctx.globalAlpha=clamp(visibility)
+      ctx.fillStyle=['#ff572d','#ff8b2e','#ffbf51','#fff1a6'][i%4]
+      if(i%8===0){ctx.shadowBlur=8*hover;ctx.shadowColor='#ff702f'}
+      ctx.fillRect(x-radius,y-radius,radius*2,radius*2)
+      ctx.shadowBlur=0
     }
-    ctx.globalAlpha = 1
+    ctx.globalAlpha=1
   }
 
   function drawSea(rect: DOMRect, p: number, hover: number) {
@@ -804,7 +884,7 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
     if (e.pointerType === 'touch') onLeave()
   }
   const onFocus = () => { if (motion.matches) frame() }
-  const onTheme = () => { if (motion.matches) frame() }
+  const onTheme = () => { cache.clear(); if (motion.matches) frame() }
 
   size()
   window.addEventListener('resize', onResize)
