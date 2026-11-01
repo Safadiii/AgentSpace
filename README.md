@@ -4,14 +4,10 @@ A minimal, mythology-inspired **React + FastAPI** prototype built around an imme
 
 ![Olympus mountain scene](frontend/public/olympus-bg.webp)
 
-## Start the API (terminal 1)
+## Start the API (terminal 1) In Main Agents Folder
 
 ```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uv run fastapi dev
 ```
 
 API docs: http://localhost:8000/docs
