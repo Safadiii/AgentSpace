@@ -116,6 +116,13 @@ export interface PaperStateRead {
   disliked: boolean
 }
 
+export interface PaperSummaryResponse {
+  paper_id: number
+  title: string | null
+  summary: string
+  content_source: 'pdf' | 'abstract' | null
+}
+
 async function call<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     ...options,
@@ -156,4 +163,9 @@ export const researchApi = {
     }),
     paperState: (paper_id: number, signal?: AbortSignal) =>
       call<PaperStateRead>(`/papers/${paper_id}/interactions`, { signal}),
+    generateSummary: (paperId: number, signal?: AbortSignal) =>
+      call<PaperSummaryResponse>(`/papers/${paperId}/summary`, {
+        method: 'POST',
+        signal,
+      }),
 }

@@ -1,6 +1,5 @@
 from datetime import date, datetime
-from typing import Any
-
+from typing import Any, Literal
 from sqlmodel import Field, SQLModel
 from storage.research.models import PaperAction
 
@@ -134,3 +133,8 @@ class PaperStateRead(SQLModel):
     disliked: bool = False
     saved: bool = False
 
+class PaperSummaryResponse(SQLModel):
+    paper_id: int
+    title: str | None = None
+    summary: str
+    content_source: Literal["pdf", "abstract"] | None = None

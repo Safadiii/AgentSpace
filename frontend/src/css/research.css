@@ -140,6 +140,23 @@
 .research-instruction-label span { font: 400 0.7812rem var(--font-sans); letter-spacing: 0; text-transform: none; }
 .research-instruction-preview { padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--t2); font-size: 0.8125rem; line-height: 1.6; max-height: 180px; overflow: auto; }
 
+/* generated summary (Athena) */
+.research-summary-head { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.research-summary-head strong { font-weight: 500; line-height: 1.35; font-size: 0.9375rem; text-wrap: balance; }
+.research-summary-scroll { max-height: 50vh; overflow: auto; padding-right: 4px; min-height: 120px; }
+.research-summary-section { padding: 14px 0; border-top: 1px solid var(--line); }
+.research-summary-section:first-child { border-top: 0; padding-top: 4px; }
+.research-summary-section .research-section-title { margin-bottom: 6px; }
+.research-section-title h3 { font-size: 0.875rem; font-weight: 500; }
+.research-summary-body { color: var(--t2); font-size: 0.9062rem; line-height: 1.65; max-width: 66ch; white-space: pre-line; }
+.research-summary-list { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.research-summary-list li { position: relative; padding-left: 16px; color: var(--t2); font-size: 0.9062rem; line-height: 1.6; max-width: 66ch; }
+.research-summary-list li::before { content: ''; position: absolute; left: 2px; top: .7em; width: 4px; height: 4px; border-radius: 50%; background: var(--t3); }
+.research-summary-loading { display: grid; gap: 12px; padding-top: 6px; }
+.research-summary-status { display: inline-flex; align-items: center; gap: 10px; color: var(--t3); font-size: 0.8125rem; margin-bottom: 4px; }
+.research-skeleton--line { height: 12px; }
+@media (prefers-reduced-motion: reduce) { .research-summary-loading .research-skeleton { animation: none; } }
+
 /* results dialog */
 .research-results-dialog { width: min(760px, calc(100% - 24px)); top: 8vh; }
 .research-results-kicker { display: inline-flex; align-items: center; gap: 8px; font: 500 0.6875rem var(--font-mono); letter-spacing: .1em; color: var(--t3); }

@@ -45,6 +45,41 @@ const PAGE_SIZE = 20
 const PREFERENCES_KEY = 'olympus:research-paper-preferences:v1'
 const ABSTRACTS_KEY = 'olympus:research-abstract-cache:v1'
 const COLLECTIONS_KEY = 'olympus:research-collections:v1'
+const SUMMARIES_KEY = 'olympus:research-summary-cache:v1'
+
+type SummarySection = { title: string; body: string; items: string[] }
+
+// Keys that describe the record rather than the paper; never shown as summary sections.
+const SUMMARY_META_KEYS = new Set(['id', 'paper_id', 'model', 'created_at', 'updated_at', 'generated_at', 'cached', 'status'])
+
+const prettyKey = (key: string) => key.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^./, c => c.toUpperCase())
+
+/** Turns whatever the summary endpoint returns (text, or an object of text / list fields) into ordered sections. */
+function normalizeSummary(raw: unknown): SummarySection[] {
+  if (typeof raw === 'string') return raw.trim() ? [{ title: '', body: raw.trim(), items: [] }] : []
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const entries = Object.entries(raw as Record<string, unknown>).filter(([key]) => !SUMMARY_META_KEYS.has(key))
+  const sections: SummarySection[] = []
+  for (const [key, value] of entries) {
+    const onlyText = entries.length === 1 || key === 'summary' || key === 'text'
+    const title = onlyText && entries.length === 1 ? '' : key === 'summary' || key === 'text' ? 'Overview' : prettyKey(key)
+    if (typeof value === 'string' && value.trim()) sections.push({ title, body: value.trim(), items: [] })
+    else if (Array.isArray(value)) {
+      const items = value.map(v => typeof v === 'string' ? v.trim() : v && typeof v === 'object' ? Object.values(v).filter(x => typeof x === 'string').join(' — ') : String(v)).filter(Boolean)
+      if (items.length) sections.push({ title, body: '', items })
+    } else if (value && typeof value === 'object') {
+      // One level of nesting, e.g. { findings: { main: "…" } }.
+      const nested = normalizeSummary(value).map(s => ({ ...s, title: s.title ? `${title} · ${s.title}` : title }))
+      sections.push(...nested)
+    }
+  }
+  // Overview first, then the rest in the order the API sent them.
+  return sections.sort((a, b) => Number(b.title === 'Overview') - Number(a.title === 'Overview'))
+}
+
+function summaryToText(sections: SummarySection[]): string {
+  return sections.map(s => [s.title, s.body, ...s.items.map(i => `- ${i}`)].filter(Boolean).join('\n')).join('\n\n')
+}
 
 function readJSON<T>(key: string, fallback: T): T {
   try {
@@ -146,7 +181,10 @@ export default function ResearchPage() {
   const [paperStateRevision, setPaperStateRevision] = useState(0)
   const [feedbackBusy, setFeedbackBusy] = useState<PaperAction | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-
+  const [summaries, setSummaries] = useState<Record<string, unknown>>(() => readJSON(SUMMARIES_KEY, {}))
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+  const summaryAbort = useRef<AbortController | null>(null)
 
   // Never display one user's or paper's feedback while another paper is selected.
   const displayedPaperState = selectedPaperState?.paperId === selectedId
@@ -156,6 +194,8 @@ export default function ResearchPage() {
   useEffect(() => { preferencesRef.current = preferences; writeJSON(PREFERENCES_KEY, preferences) }, [preferences])
   useEffect(() => { abstractsRef.current = abstracts; writeJSON(ABSTRACTS_KEY, abstracts) }, [abstracts])
   useEffect(() => { writeJSON(COLLECTIONS_KEY, extraCollections) }, [extraCollections])
+  useEffect(() => { writeJSON(SUMMARIES_KEY, summaries) }, [summaries])
+  useEffect(() => () => summaryAbort.current?.abort(), [])
 
   const loadPapers = useCallback(async (offset = 0, signal?: AbortSignal) => {
     if (offset === 0) setLoading(true)
@@ -333,6 +373,7 @@ export default function ResearchPage() {
     if (!ya || !yb) return ya ? -1 : yb ? 1 : 0
     return sort === 'oldest' ? ya - yb : yb - ya
   }), [papers, search, view, sort])
+  const summarySections = useMemo(() => selectedId && summaries[selectedId] ? normalizeSummary(summaries[selectedId]) : [], [summaries, selectedId])
   const savedCount = papers.filter(p => p.saved).length
   const otherPapers = papers.filter(p => p.id !== selected?.id)
   const compared = otherPapers.find(p => p.id === compareId) ?? otherPapers[0]
@@ -430,11 +471,38 @@ export default function ResearchPage() {
     setNotification(`Saved to ${draftCollection.trim()}.`)
     setAction(null)
   }
+  // The AI call is slow and costs tokens, so a paper is summarised once and cached; "Regenerate" forces a new call.
+  async function loadSummary(paperId: string, force = false) {
+    if (!force && summaries[paperId]) return
+    summaryAbort.current?.abort()
+    const controller = new AbortController()
+    summaryAbort.current = controller
+    setSummaryLoading(true)
+    setSummaryError('')
+    try {
+      const result = await researchApi.generateSummary(Number(paperId), controller.signal)
+      if (controller.signal.aborted) return
+      if (normalizeSummary(result).length === 0) throw new Error('The summary came back empty. Try regenerating.')
+      setSummaries(current => ({ ...current, [paperId]: result }))
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setSummaryError(error instanceof Error ? error.message : 'Unable to generate a summary.')
+    } finally {
+      if (!controller.signal.aborted) setSummaryLoading(false)
+    }
+  }
+  function closeAction() {
+    summaryAbort.current?.abort()
+    setSummaryLoading(false)
+    setSummaryError('')
+    setAction(null)
+  }
   function chooseAction(next: ResearchAction) {
     if (selected) setDraftCollection(selected.collection)
     setQuestion('')
     setCompareId(otherPapers[0]?.id ?? '')
     setAction(next)
+    if (next === 'summarize' && selected) void loadSummary(selected.id)
   }
 
   const showAgent = selected !== null
@@ -616,9 +684,31 @@ export default function ResearchPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={action !== null} onOpenChange={open => { if (!open) setAction(null) }}>
-        <DialogContent className="research-dialog"><DialogHeader><DialogTitle>{action ? actionInfo[action].label : ''}</DialogTitle><DialogDescription>{action ? actionInfo[action].description : ''} {action !== 'collection' && 'This action has no corresponding backend endpoint yet. You can copy its instruction.'}</DialogDescription></DialogHeader>
-          {action === 'collection' ? <div className="research-action-form"><label htmlFor="collection-name">Collection</label><Input id="collection-name" value={draftCollection} onChange={e => setDraftCollection(e.target.value)} placeholder="Collection name"/><div className="research-collection-suggestions">{collections.map(c => <button key={c} className={draftCollection === c ? 'is-active' : ''} type="button" onClick={() => setDraftCollection(c)}><Folder size={13}/>{c}</button>)}</div><DialogFooter><Button variant="ghost" onClick={() => setAction(null)}>Cancel</Button><Button onClick={saveCollection} disabled={!draftCollection.trim()}>Save to collection</Button></DialogFooter></div> : action ? <div className="research-action-form">
+      <Dialog open={action !== null} onOpenChange={open => { if (!open) closeAction() }}>
+        <DialogContent className="research-dialog"><DialogHeader><DialogTitle>{action ? actionInfo[action].label : ''}</DialogTitle><DialogDescription>{action ? actionInfo[action].description : ''} {action !== 'collection' && action !== 'summarize' && 'This action has no corresponding backend endpoint yet. You can copy its instruction.'}</DialogDescription></DialogHeader>
+          {action === 'summarize' && selected ? <div className="research-action-form">
+            <div className="research-summary-head">
+              <span className="research-eyebrow">SUMMARY <span className="research-dot-separator">·</span> {selected.year}</span>
+              <strong>{selected.title}</strong>
+            </div>
+            <div className="research-summary-scroll" aria-busy={summaryLoading}>
+              {summaryLoading && <div className="research-summary-loading" role="status">
+                <span className="research-summary-status"><span className="research-run-dot research-run-dot--live"/>Athena is reading the paper…</span>
+                {[92, 100, 78, 96, 60].map((w, i) => <span key={i} className="research-skeleton research-skeleton--line" style={{ width: `${w}%` }} aria-hidden="true"/>)}
+              </div>}
+              {!summaryLoading && summaryError && <div className="research-api-error" role="alert"><span>{summaryError}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => void loadSummary(selected.id, true)}>Retry</Button></div>}
+              {!summaryLoading && !summaryError && summarySections.map((section, index) => <section className="research-summary-section" key={`${section.title}-${index}`}>
+                <div className="research-section-title"><span className="research-section-index">{String(index + 1).padStart(2, '0')}</span>{section.title && <h3>{section.title}</h3>}</div>
+                {section.body && <p className="research-summary-body">{section.body}</p>}
+                {section.items.length > 0 && <ul className="research-summary-list">{section.items.map((item, i) => <li key={i}>{item}</li>)}</ul>}
+              </section>)}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={closeAction}>Close</Button>
+              <Button variant="outline" disabled={summaryLoading} onClick={() => void loadSummary(selected.id, true)}><RefreshCw size={15}/> Regenerate</Button>
+              <Button disabled={summaryLoading || summarySections.length === 0} onClick={() => void copyText(summaryToText(summarySections), 'Summary copied.')}><Copy size={15}/> Copy summary</Button>
+            </DialogFooter>
+          </div> : action === 'collection' ? <div className="research-action-form"><label htmlFor="collection-name">Collection</label><Input id="collection-name" value={draftCollection} onChange={e => setDraftCollection(e.target.value)} placeholder="Collection name"/><div className="research-collection-suggestions">{collections.map(c => <button key={c} className={draftCollection === c ? 'is-active' : ''} type="button" onClick={() => setDraftCollection(c)}><Folder size={13}/>{c}</button>)}</div><DialogFooter><Button variant="ghost" onClick={() => setAction(null)}>Cancel</Button><Button onClick={saveCollection} disabled={!draftCollection.trim()}>Save to collection</Button></DialogFooter></div> : action ? <div className="research-action-form">
             {action === 'ask' && <><label htmlFor="ask-question">Your question</label><textarea className="research-dialog-textarea" id="ask-question" rows={3} value={question} onChange={e => setQuestion(e.target.value)} placeholder="What assumptions does this method make?"/></>}
             {action === 'compare' && <><label htmlFor="compare-paper">Compare with</label><select id="compare-paper" className="research-dialog-select" value={compared?.id ?? ''} onChange={e => setCompareId(e.target.value)}>{otherPapers.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></>}
             <div className="research-instruction-label">INSTRUCTION PREVIEW <span>Copy to use with Athena when connected</span></div><div className="research-instruction-preview">{actionPrompt()}</div>

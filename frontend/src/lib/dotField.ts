@@ -154,7 +154,6 @@ export function createDotField(canvas: HTMLCanvasElement, fontFamily = 'Geist Va
           dot.colorAlpha = alpha
           dot.green = isLeaf(dot.color)
 
-          const nx = gx / width, ny = gy / height
           if (name === 'athena') {
             const box = athenaBox(width, height)
             const ax = (gx - box.x) / box.width

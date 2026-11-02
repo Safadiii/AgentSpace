@@ -1,4 +1,5 @@
 from pydantic import Field, BaseModel
+from typing import Literal, Any
 from backend.research.schemas import PaperCreate
 from core.models import AgentState
 
@@ -27,3 +28,69 @@ class ResearchState(AgentState):
     )
 
     papers: list[PaperCreate] = Field(default_factory=list)
+
+
+Analysis_Task = Literal["summary", "notes", "credibility"]
+
+class PaperSection(BaseModel):
+    heading: str
+    text: str
+    page_start: int | None = None
+    page_end: int | None = None
+
+class PaperSummary(BaseModel):
+    overview: str = Field(
+        description="Concise overview of the paper and its main contribution"
+    )
+
+    research_question: str | None = Field(
+        default=None,
+        description="The main research problem or objective"
+    )
+
+    methodology: str | None = Field(
+        default=None,
+        description="Methods, techniques, and experimental approach used"
+    )
+
+    key_findings: list[str] = Field(
+        default_factory=list,
+        description="Important findings supported by the paper"
+    )
+
+    limitations: list[str] = Field(
+        default_factory=list,
+        description="Limitations of the research or methodology"
+    )
+
+    conclusions: list[str] = Field(
+        default_factory=list,
+        description="Main conclusions and contributions"
+    )
+
+class PaperAnalysisState(AgentState):
+    paper_id: int
+    requested_tasks: list[Analysis_Task] = Field(default_factory=lambda: ["summary"])
+    request: str = ""
+
+    title: str | None = None
+    abstract: str | None = None
+    pdf_url: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    pages: list[dict[str, Any]] = Field(default_factory=list)
+    extraction_ok: bool = False
+    content_source: Literal["pdf", "abstract"] | None = None
+
+    sections: list[PaperSection] = Field(default_factory=list)
+    archive_context: list[PaperSection] = Field(default_factory=list)
+    active_context: list[PaperSection] = Field(default_factory=list)
+
+    completed_tasks: list[Analysis_Task] = Field(default_factory=list)
+
+    summary: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    credibility: dict[str, Any] | None = None
+
+
+

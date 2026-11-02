@@ -1,12 +1,21 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
+from backend.init import engine
 
+from storage.research.models import Paper
 from backend.init import get_session
-from backend.research.schemas import PaperRead, PaperCreate, PaperDetailedRead, ResearchRunResponse, PaperInteractionRead, PaperInteractionCreate, PaperStateRead
+from backend.research.schemas import PaperRead, PaperSummaryResponse, PaperCreate, PaperDetailedRead, ResearchRunResponse, PaperInteractionRead, PaperInteractionCreate, PaperStateRead
 from backend.research.paper.services import PaperServices, RecommendationRunServices, PaperInteractionServices, ImpressionNotFoundError
 from typing import List
+from agents.research.summary_agent import SummaryAgent
+from agents.research.state import PaperAnalysisState
+import logging
 
+logger = logging.getLogger(__name__)
+
+def session_factory() -> Session:
+    return Session(engine)
 
 paper_router = APIRouter(
     prefix="/research",
@@ -114,3 +123,60 @@ def record_paper_interaction(
             status_code=422,
             detail=str(exc)
         ) from exc
+
+@paper_router.post(
+    "/papers/{paper_id}/summary",
+    response_model=PaperSummaryResponse
+)
+async def generate_paper_summary(paper_id: int):
+
+    with session_factory() as session:
+        paper = session.get(Paper, paper_id)
+
+        if paper is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Paper {paper_id} not found"
+            )
+
+    try:
+        agent = SummaryAgent(
+            session_factory=session_factory
+        )
+
+        result = await agent.graph.ainvoke({
+            "paper_id": paper_id,
+            "requested_tasks": ["summary"]
+        })
+
+        state = PaperAnalysisState.model_validate(result)
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc)
+        ) from exc
+
+    except Exception as exc:
+        logger.exception(
+            "Summary generation failed for paper %s",
+            paper_id
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate paper summary"
+        ) from exc
+
+    if not state.summary or not state.summary.strip():
+        raise HTTPException(
+            status_code=502,
+            detail="The analysis completed without a summary"
+        )
+
+    return PaperSummaryResponse(
+        paper_id=paper_id,
+        title=state.title,
+        summary=state.summary,
+        content_source=state.content_source
+    )
