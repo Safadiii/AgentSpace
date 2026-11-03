@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Plus, X } from 'lucide-react'
-import { hermesApi } from '../../api/hermesApi'
+import { friendlyError, hermesApi } from '../../api/hermesApi'
 import type { ProtectedSender } from '../../api/hermesApi'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
-const OFFLINE = 'Hermes API is unreachable. Start the backend to manage protected senders.'
 const byValue = (a: ProtectedSender, b: ProtectedSender) => a.value.localeCompare(b.value)
 
 export default function ProtectedSenders() {
@@ -20,7 +19,7 @@ export default function ProtectedSenders() {
     const controller = new AbortController()
     hermesApi.protectedSenders(controller.signal)
       .then(rows => { setItems(rows); setError(null) })
-      .catch(err => { if (!controller.signal.aborted) setError(err instanceof TypeError ? OFFLINE : err.message) })
+      .catch(err => { if (!controller.signal.aborted) setError(friendlyError(err)) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [])
@@ -33,7 +32,7 @@ export default function ProtectedSenders() {
       setItems(current => [...current, created].sort(byValue))
       setValue('')
     } catch (err) {
-      setError(err instanceof TypeError ? OFFLINE : (err as Error).message)
+      setError(friendlyError(err))
     } finally {
       setBusy(false)
     }
@@ -45,7 +44,7 @@ export default function ProtectedSenders() {
       await hermesApi.unprotectSender(item.id)
       setItems(current => current.filter(x => x.id !== item.id))
     } catch (err) {
-      setError(err instanceof TypeError ? OFFLINE : (err as Error).message)
+      setError(friendlyError(err))
     }
   }
 

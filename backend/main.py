@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from backend.research.paper.routes import paper_router
 from backend.research.api.search import search_router
-from backend.hermes.routes import hermes_router
+from backend.hermes.routes import hermes_router, register_error_handlers
 import os 
 
 from dotenv import load_dotenv
@@ -22,6 +22,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(paper_router)
 app.include_router(search_router)
 app.include_router(hermes_router)
+register_error_handlers(app)
 
 @app.get("/")
 def root():

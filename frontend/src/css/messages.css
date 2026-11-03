@@ -1,0 +1,69 @@
+/* Messages workspace (Hermes). Layout comes from research.css; this file only adds mail-specific parts. */
+.messages-blurb { margin: 0 0 18px; color: var(--t2); font-size: 0.875rem; line-height: 1.5; max-width: 60ch; }
+.messages-account { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.messages .research-green-dot.messages-dot--bad { background: var(--danger); }
+.messages-body { display: grid; gap: 16px; max-width: 760px; }
+.messages-body .triage, .messages-body .protected { margin: 0; padding-bottom: 0; border-bottom: 0; }
+.messages-body .sheet-row, .messages-body .triage .protected-hint { display: none; }
+.research-api-error code { font: 400 0.8125rem var(--font-mono); padding: 1px 6px; border-radius: 6px; background: var(--s2); }
+
+/* history */
+.messages-body:has(.history) { max-width: none; }
+.history { display: grid; gap: 12px; }
+.history-filters { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(120px, 1fr)); gap: 8px; }
+.history-search { margin-bottom: 0; }
+.history-count { margin: 0; color: var(--t3); font-size: 0.78rem; }
+.history-clear { color: var(--t2); text-decoration: underline; font-size: inherit; }
+.history-clear:hover { color: var(--t1); }
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.history-row:first-child { border-top: 0; }
+.history-main { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.history-main p { margin: 0; }
+.history-subject { font-size: 0.9rem; font-weight: 500; overflow-wrap: anywhere; }
+.history-sender { color: var(--t3); font-size: 0.75rem; overflow-wrap: anywhere; }
+.history-reason { color: var(--t2); font-size: 0.8125rem; line-height: 1.45; }
+.history-meta { display: grid; gap: 8px; justify-items: end; flex-shrink: 0; max-width: 46%; }
+.history-meta .triage-tags { justify-content: flex-end; }
+.history-more { justify-self: start; }
+@media (max-width: 820px) {
+  .history-filters { grid-template-columns: 1fr 1fr; }
+  .history-search { grid-column: 1 / -1; }
+  .history-row { flex-direction: column; }
+  .history-meta { justify-items: start; max-width: none; }
+  .history-meta .triage-tags { justify-content: flex-start; }
+}
+
+/* important emails */
+.messages-body:has(.important) { max-width: none; }
+.important { display: grid; gap: 12px; }
+.important-filters { display: grid; grid-template-columns: minmax(180px, 1.6fr) minmax(130px, 1fr) auto auto; gap: 8px; align-items: center; }
+.important-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--t2); font-size: 0.8125rem; white-space: nowrap; }
+.history-row .btn { flex-shrink: 0; text-decoration: none; }
+@media (max-width: 820px) {
+  .important-filters { grid-template-columns: 1fr 1fr; }
+  .important-filters .history-search { grid-column: 1 / -1; }
+}
+
+/* draft reply */
+.history-row:has(.draft) { flex-wrap: wrap; }
+.important-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; flex-shrink: 0; }
+.draft { flex-basis: 100%; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--s1); }
+.draft-controls { display: grid; grid-template-columns: minmax(120px, 160px) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.draft-result { display: grid; gap: 8px; }
+.draft-result p { margin: 0; }
+.draft-result .btn { text-decoration: none; }
+@media (max-width: 820px) { .draft-controls { grid-template-columns: 1fr; } }
+
+/* next meeting countdown */
+.meeting { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--s1); color: var(--t2); min-width: 0; max-width: 360px; }
+.meeting--live { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.meeting--note { font-size: 0.8125rem; max-width: 420px; }
+.meeting-text { display: grid; gap: 1px; min-width: 0; flex: 1; font-size: 0.75rem; }
+.meeting-text strong { color: var(--t1); font-weight: 500; font-size: 0.8125rem; }
+.meeting-label { font: 500 0.6563rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
+.meeting-clock { font: 400 1.375rem/1.15 var(--font-mono) !important; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.meeting-title, .meeting-then { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meeting-then { color: var(--t3); }
+.meeting code { font: 400 0.75rem var(--font-mono); padding: 1px 5px; border-radius: 6px; background: var(--s2); }
+.meeting .btn { text-decoration: none; }

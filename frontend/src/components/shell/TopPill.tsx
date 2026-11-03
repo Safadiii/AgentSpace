@@ -3,7 +3,9 @@ import { motion } from 'motion/react'
 import { SPRING_QUICK } from '../../lib/motion'
 import type { Theme } from '../../hooks/useTheme'
 
-export type Route = 'home' | 'research'
+export type Route = 'home' | 'research' | 'messages'
+
+const LABELS: Record<Route, string> = { home: 'Console', research: 'Research', messages: 'Messages' }
 
 interface Props {
   route: Route
@@ -20,10 +22,10 @@ export default function TopPill({ route, theme, onNavigate, onCommand, onToggleT
         <i className="pill-mark" aria-hidden="true" /><span>AgentSpace</span>
       </button>
       <nav className="pill-nav" aria-label="Primary">
-        {(['home', 'research'] as const).map(r => (
+        {(['home', 'research', 'messages'] as const).map(r => (
           <button key={r} type="button" aria-current={route === r ? 'page' : undefined} onClick={() => onNavigate(r)}>
             {route === r && <motion.span layoutId="pill-active" className="pill-active" transition={SPRING_QUICK} />}
-            <span className="pill-label">{r === 'home' ? 'Console' : 'Research'}</span>
+            <span className="pill-label">{LABELS[r]}</span>
           </button>
         ))}
       </nav>

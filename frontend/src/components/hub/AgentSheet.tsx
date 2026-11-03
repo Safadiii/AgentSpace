@@ -1,12 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ArrowRight, BookOpen, Pause, Play } from 'lucide-react'
+import { ArrowRight, BookOpen, Mail, Pause, Play } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/dialog'
 import { useDragToDismiss } from '../../hooks/useDragToDismiss'
 import type { Agent, AgentTask } from '../../types'
 import { StatusLabel } from './AgentParts'
-import ProtectedSenders from '../hermes/ProtectedSenders'
 
 interface Props {
   agent: Agent | undefined
@@ -17,9 +16,10 @@ interface Props {
   onSubmit: (title: string) => Promise<boolean>
   onToggle: () => void
   onOpenResearch: () => void
+  onOpenMessages: () => void
 }
 
-export default function AgentSheet({ agent, task, open, busy, onOpenChange, onSubmit, onToggle, onOpenResearch }: Props) {
+export default function AgentSheet({ agent, task, open, busy, onOpenChange, onSubmit, onToggle, onOpenResearch, onOpenMessages }: Props) {
   const [text, setText] = useState('')
   const field = useRef<HTMLTextAreaElement>(null)
   const [popup, setPopup] = useState<HTMLDivElement | null>(null)
@@ -48,9 +48,10 @@ export default function AgentSheet({ agent, task, open, busy, onOpenChange, onSu
           {agent.id === 'athena' && (
             <Button variant="outline" onClick={onOpenResearch}><BookOpen size={15} aria-hidden="true" /> Open research library <ArrowRight size={14} aria-hidden="true" /></Button>
           )}
+          {agent.id === 'hermes' && (
+            <Button variant="outline" onClick={onOpenMessages}><Mail size={15} aria-hidden="true" /> Open messages <ArrowRight size={14} aria-hidden="true" /></Button>
+          )}
         </div>
-
-        {agent.id === 'hermes' && <ProtectedSenders />}
 
         <form className="sheet-form" onSubmit={submit}>
           <div className="field">

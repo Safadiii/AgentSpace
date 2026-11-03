@@ -4,6 +4,7 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { SPRING } from './lib/motion'
 import { api } from './api/api'
 import ResearchPage from './ResearchPage'
+import MessagesPage from './MessagesPage'
 import DotField from './components/shell/DotField'
 import TopPill from './components/shell/TopPill'
 import type { Route } from './components/shell/TopPill'
@@ -17,7 +18,11 @@ import type { AgentId, AgentStatus, AgentTask, HubState } from './types'
 
 const EMPTY: HubState = { agents: [], tasks: [], events: [] }
 const pad = (n: number) => String(n).padStart(2, '0')
-const routeFromPath = (): Route => (window.location.pathname.startsWith('/research') ? 'research' : 'home')
+const PATHS: Record<Route, string> = { home: '/', research: '/research', messages: '/messages' }
+const routeFromPath = (): Route => {
+  const path = window.location.pathname
+  return path.startsWith('/research') ? 'research' : path.startsWith('/messages') ? 'messages' : 'home'
+}
 const taskFor = (tasks: AgentTask[], id: AgentId) => tasks.find(t => t.agent_id === id && (t.status === 'running' || t.status === 'paused'))
 
 export default function App() {
@@ -36,7 +41,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
 
   const navigate = useCallback((next: Route) => {
-    window.history.pushState(null, '', next === 'home' ? '/' : '/research')
+    window.history.pushState(null, '', PATHS[next])
     setSheetOpen(false); setCommandOpen(false); setRoute(next); window.scrollTo(0, 0)
   }, [])
 
@@ -103,7 +108,7 @@ export default function App() {
 
       <main id="main" className="main">
         <motion.div key={route} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
-        {route === 'research' ? <ResearchPage /> : (
+        {route === 'research' ? <ResearchPage /> : route === 'messages' ? <MessagesPage /> : (
           <div className="console">
             <section className="hero" aria-labelledby="hero-title">
               <div className="hero-copy">
@@ -170,7 +175,7 @@ export default function App() {
         onOpenChange={setSheetOpen}
         onSubmit={title => submitDirective(title, sheetAgent?.id ?? 'auto')}
         onToggle={() => sheetAgent && void act(() => api.toggleAgent(sheetAgent.id), `${sheetAgent.name} status updated.`)}
-        onOpenResearch={() => navigate('research')} />
+        onOpenResearch={() => navigate('research')} onOpenMessages={() => navigate('messages')} />
       <CommandDialog open={commandOpen} busy={busy} text={command} target={target} onText={setCommand} onTarget={setTarget}
         onOpenChange={setCommandOpen} onSubmit={() => void submitDirective(command, target)} />
 

@@ -19,6 +19,17 @@ class EmailMessage(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict) # lower-cased subset
 
 
+class EmailSummary(BaseModel):
+    """One row in a search result list (headers only, no body)."""
+
+    id: str
+    sender: str
+    subject: str = ""
+    snippet: str = ""
+    date: str | None = None           # raw Date header
+    unread: bool = False
+
+
 class HeuristicSignals(BaseModel):
     has_unsubscribe: bool = False
     is_bulk: bool = False
