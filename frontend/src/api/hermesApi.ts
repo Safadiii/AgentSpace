@@ -104,6 +104,7 @@ export interface GmailStatus {
   connected: boolean
   email: string | null
   problem: string | null
+  has_credentials: boolean
 }
 
 /** API failure with the backend's stable `code` (e.g. "gmail_auth"). */
@@ -114,7 +115,7 @@ export class HermesError extends Error {
 }
 
 const OFFLINE = 'Hermes API is unreachable. Start the backend to use Hermes.'
-const RELOGIN = 'Hermes lost access to Gmail. In the project folder run: python -m scripts.gmail_auth, approve the login, then try again.'
+const RELOGIN = 'Hermes lost access to Gmail. Press Connect Gmail on the Messages page to log in again.'
 
 /** Turn any thrown value into one sentence a person can act on. */
 export function friendlyError(err: unknown): string {
@@ -157,6 +158,10 @@ export const hermesApi = {
   processEmail: (body: Partial<EmailSearch> & { message_id?: string; dry_run: boolean }) =>
     call<ProcessResult>('/email/process', { method: 'POST', body: JSON.stringify(body) }),
   status: (signal?: AbortSignal) => call<GmailStatus>('/status', { signal }),
+  saveConnectKey: (credentials: string) =>
+    call<void>('/connect/key', { method: 'POST', body: JSON.stringify({ credentials }) }),
+  startConnect: (origin: string) =>
+    call<{ url: string }>('/connect/start', { method: 'POST', body: JSON.stringify({ origin }) }),
   actions: (filters: ActionFilters = {}, signal?: AbortSignal) => {
     const params = new URLSearchParams()
     for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value))

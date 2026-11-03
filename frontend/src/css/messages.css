@@ -67,3 +67,19 @@
 .meeting-then { color: var(--t3); }
 .meeting code { font: 400 0.75rem var(--font-mono); padding: 1px 5px; border-radius: 6px; background: var(--s2); }
 .meeting .btn { text-decoration: none; }
+
+/* connect Gmail */
+.messages-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.messages-notice { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--s1); }
+.connect { max-height: 86vh; overflow-y: auto; display: grid; gap: 4px; }
+.connect-part { display: grid; gap: 10px; padding-top: 16px; }
+.connect-part h3 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 1rem; font-weight: 500; }
+.connect-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--s2); font-size: 0.75rem; }
+.connect-steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--t2); font-size: 0.875rem; line-height: 1.5; }
+.connect-steps a { color: var(--t1); text-decoration: underline; }
+.connect-steps a svg { vertical-align: -1px; }
+.connect-key { display: grid; gap: 8px; }
+.connect-text { width: 100%; resize: vertical; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--s1); color: var(--t1); font: 400 0.75rem var(--font-mono); }
+.connect-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.connect-note { margin: 0; color: var(--t2); font-size: 0.8125rem; line-height: 1.5; }
+.connect-ok { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 0.875rem; }

@@ -77,6 +77,19 @@ class GmailStatus(BaseModel):
     connected: bool
     email: str | None = None
     problem: str | None = None
+    has_credentials: bool = False   # the user's Google key is saved; only sign-in is missing
+
+
+class ConnectKeyRequest(BaseModel):
+    credentials: str = Field(max_length=40_000)   # contents of the downloaded JSON
+
+
+class ConnectStartRequest(BaseModel):
+    origin: str = Field(max_length=100)   # where the app runs, so Google can send the user back
+
+
+class ConnectStartResponse(BaseModel):
+    url: str
 
 
 class ProtectedSenderCreate(BaseModel):

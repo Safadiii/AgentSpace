@@ -2,11 +2,12 @@ import os
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Annotated
+from urllib.parse import urlencode
 
 from typing import Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
@@ -19,12 +20,13 @@ from agents.hermes.policy import normalize_protected
 from agents.hermes.queries import Scope, Window, build_query
 from agents.hermes.state import EmailSummary
 from agents.hermes.state import HermesEmailState
+from backend.hermes import connect
 from backend.hermes.providers.calendar import CalendarAuthError, GoogleCalendarProvider
 from backend.hermes.providers.gmail import GmailAuthError, GmailProvider
 from backend.hermes.providers.llm_drafter import Draft, LLMEmailDrafter
 from backend.hermes.providers.llm_classifier import CachingClassifier, LLMEmailClassifier
 from backend.hermes.schemas import (
-    ActionPage, DraftRequest, GmailStatus, MeetingsResponse, ProcessEmailRequest, ProcessEmailResponse,
+    ActionPage, ConnectKeyRequest, ConnectStartRequest, ConnectStartResponse, DraftRequest, GmailStatus, MeetingsResponse, ProcessEmailRequest, ProcessEmailResponse,
     ProtectedSenderCreate, ProtectedSenderRead, ActionLogRead,
 )
 from backend.init import engine, get_session
@@ -77,7 +79,7 @@ def session_factory() -> Session:
 
 @lru_cache
 def get_mailbox() -> GmailProvider:
-    return GmailProvider(os.environ["GMAIL_TOKEN_FILE"])
+    return GmailProvider(str(connect.token_path()))
 
 
 def default_dry_run() -> bool:
@@ -211,12 +213,52 @@ async def upcoming_meetings(limit: int = Query(5, ge=1, le=10)):
 @hermes_router.get("/status", response_model=GmailStatus)
 async def gmail_status():
     """Is Gmail connected? Lets the UI warn before the user hits a failure."""
+    has_key = connect.has_client_key()
+    if not connect.token_path().exists():
+        return GmailStatus(connected=False, problem="Gmail is not connected yet.", has_credentials=has_key)
     try:
-        return GmailStatus(connected=True, email=await get_mailbox().profile_email())
+        return GmailStatus(connected=True, email=await get_mailbox().profile_email(), has_credentials=has_key)
     except (GmailAuthError, RefreshError) as exc:
         get_mailbox.cache_clear()
         problem = str(exc) if isinstance(exc, GmailAuthError) else GMAIL_LOGIN_LOST
-        return GmailStatus(connected=False, problem=problem)
+        return GmailStatus(connected=False, problem=problem, has_credentials=has_key)
+
+
+@hermes_router.post("/connect/key", status_code=204)
+def save_connect_key(body: ConnectKeyRequest):
+    """Step 1 of connecting: store the Google key the user downloaded."""
+    try:
+        connect.save_client_key(body.credentials)
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=422, detail={"code": "connect_key", "message": str(exc)}) from exc
+
+
+@hermes_router.post("/connect/start", response_model=ConnectStartResponse)
+def start_connect(body: ConnectStartRequest):
+    """Step 2: the Google sign-in address the browser should open."""
+    try:
+        return ConnectStartResponse(url=connect.pending.start(body.origin))
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=422, detail={"code": "connect_start", "message": str(exc)}) from exc
+
+
+@hermes_router.get("/connect/callback", include_in_schema=False)
+def finish_connect(state: str = "", code: str = "", error: str = ""):
+    """Google sends the browser here after sign-in; we save the token and go back to the app."""
+    origin = connect.pending.origin_of(state)
+    if origin is None:
+        return HTMLResponse(
+            "<p>This sign-in link has expired. Close this tab and press Connect again in Hermes.</p>", status_code=400,
+        )
+    try:
+        if error or not code:
+            connect.pending.discard(state)
+            raise connect.ConnectError("Google sign-in was cancelled. Press Connect to try again.")
+        connect.pending.finish(state, code)
+    except connect.ConnectError as exc:
+        return RedirectResponse(f"{origin}/messages?{urlencode({'gmail': 'error', 'reason': str(exc)})}")
+    get_mailbox.cache_clear()
+    return RedirectResponse(f"{origin}/messages?gmail=connected")
 
 
 @hermes_router.get("/actions", response_model=ActionPage)

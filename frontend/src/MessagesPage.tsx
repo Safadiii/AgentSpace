@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { History, Inbox, RefreshCw, ShieldCheck, Star } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { History, Inbox, Mail, RefreshCw, ShieldCheck, Star } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Separator } from './components/ui/separator'
 import { hermesApi } from './api/hermesApi'
 import type { GmailStatus } from './api/hermesApi'
+import ConnectGmail from './components/hermes/ConnectGmail'
 import EmailTriage from './components/hermes/EmailTriage'
 import HermesHistory from './components/hermes/HermesHistory'
 import ImportantEmails from './components/hermes/ImportantEmails'
@@ -31,6 +32,9 @@ export default function MessagesPage() {
   const [gmail, setGmail] = useState<GmailStatus | null>(null)
   const [offline, setOffline] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [connectOpen, setConnectOpen] = useState(false)
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  const askedOnce = useRef(false)
 
   const check = useCallback(async (signal?: AbortSignal) => {
     setChecking(true)
@@ -48,6 +52,25 @@ export default function MessagesPage() {
     void check(controller.signal)
     return () => controller.abort()
   }, [check])
+
+  // Google sends the browser back here with the result of the sign-in.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const result = params.get('gmail')
+    if (!result) return
+    setNotice(result === 'connected'
+      ? { ok: true, text: 'Gmail connected. Hermes is ready.' }
+      : { ok: false, text: params.get('reason')?.slice(0, 200) || 'Gmail could not be connected. Try again.' })
+    window.history.replaceState(null, '', window.location.pathname)
+  }, [])
+
+  // First visit with nothing set up: show the instructions without being asked.
+  useEffect(() => {
+    if (gmail && !gmail.connected && !gmail.has_credentials && !askedOnce.current) {
+      askedOnce.current = true
+      setConnectOpen(true)
+    }
+  }, [gmail])
 
   const current = VIEWS.find(v => v.id === view)!
   const dot = gmail?.connected ? '' : ' messages-dot--bad'
@@ -70,6 +93,7 @@ export default function MessagesPage() {
           <div className="research-library-bottom" title={gmail?.email ?? 'Gmail connection'}>
             <span className={`research-green-dot${dot}`} />
             <span className="messages-account">{gmail?.connected ? gmail.email : offline ? 'Backend offline' : gmail ? 'Gmail login needed' : 'Checking Gmail…'}</span>
+            {gmail && <button type="button" className="history-clear" onClick={() => setConnectOpen(true)}>{gmail.connected ? 'Change' : 'Connect'}</button>}
           </div>
         </aside>
 
@@ -90,12 +114,19 @@ export default function MessagesPage() {
               <Button size="sm" variant="outline" disabled={checking} onClick={() => void check()}><RefreshCw size={13} aria-hidden="true" /> Retry</Button>
             </div>
           )}
+          {notice && (
+            <div className={notice.ok ? 'messages-notice' : 'research-api-error'} role="status">
+              <span>{notice.text}</span>
+              <Button size="sm" variant="ghost" onClick={() => setNotice(null)}>Dismiss</Button>
+            </div>
+          )}
           {gmail && !gmail.connected && (
             <div className="research-api-error" role="alert">
-              <span>
-                {gmail.problem ?? 'Gmail is not connected.'} In the project folder run <code>python -m scripts.gmail_auth</code>, approve the login, then check again.
+              <span>{gmail.problem ?? 'Gmail is not connected.'}</span>
+              <span className="messages-actions">
+                <Button size="sm" onClick={() => setConnectOpen(true)}><Mail size={13} aria-hidden="true" /> Connect Gmail</Button>
+                <Button size="sm" variant="outline" disabled={checking} onClick={() => void check()}><RefreshCw size={13} aria-hidden="true" /> Check again</Button>
               </span>
-              <Button size="sm" variant="outline" disabled={checking} onClick={() => void check()}><RefreshCw size={13} aria-hidden="true" /> Check again</Button>
             </div>
           )}
 
@@ -107,6 +138,7 @@ export default function MessagesPage() {
           </div>
         </section>
       </div>
+      <ConnectGmail open={connectOpen} onOpenChange={setConnectOpen} hasKey={gmail?.has_credentials ?? false} onKeySaved={() => void check()} />
     </div>
   )
 }

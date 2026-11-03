@@ -211,3 +211,95 @@ def test_meetings_not_connected_is_not_an_error(client, monkeypatch):
 def test_meetings_api_not_enabled_is_explained(client, monkeypatch):
     _calendar(monkeypatch, exc=_http(403, b'{"error": {"errors": [{"reason": "accessNotConfigured"}]}}'))
     assert "not enabled" in client.get("/hermes/meetings").json()["problem"]
+
+
+# ---- connect Gmail from the UI ----
+import json
+
+from backend.hermes import connect
+
+KEY = {"installed": {"client_id": "id.apps.googleusercontent.com", "client_secret": "s3cret",
+                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                     "token_uri": "https://oauth2.googleapis.com/token", "project_id": "p"}}
+
+
+@pytest.fixture
+def secrets_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("GMAIL_CREDENTIALS_FILE", str(tmp_path / "credentials.json"))
+    monkeypatch.setenv("GMAIL_TOKEN_FILE", str(tmp_path / "token.json"))
+    monkeypatch.setattr(connect, "pending", connect.PendingLogins())
+    routes.get_mailbox.cache_clear()
+    return tmp_path
+
+
+def test_status_not_connected_before_any_setup(client, secrets_dir):
+    body = client.get("/hermes/status").json()
+    assert body["connected"] is False and body["has_credentials"] is False
+    assert "not connected" in body["problem"]
+
+
+def test_saving_a_key_keeps_only_needed_fields_and_is_private(client, secrets_dir):
+    assert client.post("/hermes/connect/key", json={"credentials": json.dumps(KEY)}).status_code == 204
+    saved = json.loads((secrets_dir / "credentials.json").read_text())
+    assert "project_id" not in saved["installed"] and saved["installed"]["client_secret"] == "s3cret"
+    assert oct((secrets_dir / "credentials.json").stat().st_mode & 0o777) == "0o600"
+    assert client.get("/hermes/status").json()["has_credentials"] is True
+
+
+@pytest.mark.parametrize("raw, fragment", [
+    ("not json", "not valid JSON"),
+    ("[1]", "does not look like"),
+    (json.dumps({"web": KEY["installed"]}), "Desktop app"),
+    (json.dumps({"installed": {"client_id": "x"}}), "OAuth key"),
+    ("{" + " " * 25_000 + "}", "too big"),
+])
+def test_bad_keys_are_rejected_with_a_clear_message(client, secrets_dir, raw, fragment):
+    r = client.post("/hermes/connect/key", json={"credentials": raw})
+    assert r.status_code == 422 and fragment in r.json()["detail"]["message"]
+    assert not (secrets_dir / "credentials.json").exists()
+
+
+def test_start_needs_a_key_and_a_local_origin(client, secrets_dir):
+    assert client.post("/hermes/connect/start", json={"origin": "http://localhost:5173"}).status_code == 422
+    client.post("/hermes/connect/key", json={"credentials": json.dumps(KEY)})
+    assert client.post("/hermes/connect/start", json={"origin": "https://evil.com"}).status_code == 422
+    assert client.post("/hermes/connect/start", json={"origin": "http://localhost.evil.com:80"}).status_code == 422
+    r = client.post("/hermes/connect/start", json={"origin": "http://localhost:5173/"})
+    url = r.json()["url"]
+    assert url.startswith("https://accounts.google.com/") and "gmail.modify" in url
+    assert "redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fhermes%2Fconnect%2Fcallback" in url
+
+
+def test_callback_with_unknown_state_saves_nothing(client, secrets_dir):
+    r = client.get("/hermes/connect/callback", params={"state": "nope", "code": "c"}, follow_redirects=False)
+    assert r.status_code == 400 and not (secrets_dir / "token.json").exists()
+
+
+def test_callback_saves_token_and_returns_to_the_app(client, secrets_dir, monkeypatch):
+    client.post("/hermes/connect/key", json={"credentials": json.dumps(KEY)})
+    url = client.post("/hermes/connect/start", json={"origin": "http://localhost:5173"}).json()["url"]
+    state = url.split("state=")[1].split("&")[0]
+    flow = connect.pending._items[state][1]
+
+    def fake_fetch(code):
+        assert code == "good"
+        flow.oauth2session.token = {"access_token": "a", "refresh_token": "r", "expires_at": 9999999999,
+                                    "scope": ["https://www.googleapis.com/auth/gmail.modify"]}
+    monkeypatch.setattr(flow, "fetch_token", fake_fetch)
+
+    r = client.get("/hermes/connect/callback", params={"state": state, "code": "good"}, follow_redirects=False)
+    assert r.status_code in (302, 307) and r.headers["location"] == "http://localhost:5173/messages?gmail=connected"
+    token = json.loads((secrets_dir / "token.json").read_text())
+    assert token["refresh_token"] == "r" and oct((secrets_dir / "token.json").stat().st_mode & 0o777) == "0o600"
+    # the state is single-use
+    again = client.get("/hermes/connect/callback", params={"state": state, "code": "good"}, follow_redirects=False)
+    assert again.status_code == 400
+
+
+def test_callback_cancelled_or_missing_permission_does_not_save(client, secrets_dir):
+    client.post("/hermes/connect/key", json={"credentials": json.dumps(KEY)})
+    url = client.post("/hermes/connect/start", json={"origin": "http://localhost:5173"}).json()["url"]
+    state = url.split("state=")[1].split("&")[0]
+    r = client.get("/hermes/connect/callback", params={"state": state, "error": "access_denied"}, follow_redirects=False)
+    assert "gmail=error" in r.headers["location"] and "cancelled" in r.headers["location"]
+    assert not (secrets_dir / "token.json").exists()
