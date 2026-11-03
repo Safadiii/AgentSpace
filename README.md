@@ -74,3 +74,5 @@ Integration points for a future orchestrator:
 - Responsive viewport layouts and `prefers-reduced-motion` support.
 
 Built as a starting point for the existing research-agent/central-OS project.
+
+<!-- push test: safe to delete -->
