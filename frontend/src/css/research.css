@@ -148,7 +148,25 @@
 .research-summary-section:first-child { border-top: 0; padding-top: 4px; }
 .research-summary-section .research-section-title { margin-bottom: 6px; }
 .research-section-title h3 { font-size: 0.875rem; font-weight: 500; }
-.research-summary-body { color: var(--t2); font-size: 0.9062rem; line-height: 1.65; max-width: 66ch; white-space: pre-line; }
+/* rendered markdown inside a summary section */
+.research-md { display: grid; gap: 10px; color: var(--t2); font-size: 0.9062rem; line-height: 1.65; max-width: 66ch; overflow-wrap: anywhere; }
+.research-md > * { margin: 0; }
+.research-md strong { color: var(--t1); font-weight: 600; }
+.research-md em { font-style: italic; }
+.research-md a { color: var(--t1); text-underline-offset: 3px; }
+.research-md code { font: 500 0.8125rem var(--font-mono); padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); color: var(--t1); }
+.research-md pre { padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); overflow: auto; line-height: 1.55; }
+.research-md pre code { padding: 0; border: 0; background: none; font-size: 0.78rem; color: var(--t2); }
+.research-md ul, .research-md ol { display: grid; gap: 6px; padding: 0; list-style: none; }
+.research-md li { position: relative; padding-left: 16px; }
+.research-md ul > li::before { content: ''; position: absolute; left: 2px; top: .7em; width: 4px; height: 4px; border-radius: 50%; background: var(--t3); }
+.research-md ol { counter-reset: md-item; }
+.research-md ol > li { counter-increment: md-item; padding-left: 24px; }
+.research-md ol > li::before { content: counter(md-item, decimal-leading-zero); position: absolute; left: 0; top: .2em; font: 500 0.6875rem var(--font-mono); color: var(--t3); }
+.research-md li > ul, .research-md li > ol { margin-top: 6px; }
+.research-md .research-md-h { font-size: 0.8438rem; font-weight: 500; color: var(--t1); letter-spacing: 0; margin-top: 4px; }
+.research-md blockquote { padding-left: 12px; border-left: 2px solid var(--line-2); color: var(--t3); display: grid; gap: 8px; }
+.research-md hr { border: 0; border-top: 1px solid var(--line); width: 100%; }
 .research-summary-list { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
 .research-summary-list li { position: relative; padding-left: 16px; color: var(--t2); font-size: 0.9062rem; line-height: 1.6; max-width: 66ch; }
 .research-summary-list li::before { content: ''; position: absolute; left: 2px; top: .7em; width: 4px; height: 4px; border-radius: 50%; background: var(--t3); }

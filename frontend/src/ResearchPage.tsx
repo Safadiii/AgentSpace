@@ -19,6 +19,7 @@ import type { PaperRead, PaperDetailedRead, ResearchRunResponse, PaperStateRead 
 import './css/research.css'
 import ResearchResultsModal from './components/research/ResearchResultsModal'
 import PaperFeedbackActions from './components/research/PaperFeedbackActions'
+import SummaryMarkdown, { InlineMarkdown } from './lib/SummaryMarkdown'
 import type { PaperAction } from './api/researchApi'
 
 type LibraryView = 'all' | 'saved' | `collection:${string}`
@@ -54,16 +55,39 @@ const SUMMARY_META_KEYS = new Set(['id', 'paper_id', 'model', 'created_at', 'upd
 
 const prettyKey = (key: string) => key.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^./, c => c.toUpperCase())
 
-/** Turns whatever the summary endpoint returns (text, or an object of text / list fields) into ordered sections. */
+/** Splits a markdown string into numbered sections at its #, ## and ### headings (headings inside code fences are ignored). */
+function markdownSections(text: string, firstTitle = ''): SummarySection[] {
+  const sections: SummarySection[] = []
+  let title = firstTitle
+  let body: string[] = []
+  let inFence = false
+  const flush = () => {
+    const joined = body.join('\n').trim()
+    if (joined) sections.push({ title, body: joined, items: [] })
+    body = []
+  }
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^\s*```/.test(line)) inFence = !inFence
+    const heading = inFence ? null : /^\s{0,3}#{1,3}\s+(.*?)\s*#*\s*$/.exec(line)
+    if (heading) {
+      flush()
+      title = heading[1].replace(/[*_`]/g, '').replace(/:\s*$/, '').trim()
+    } else body.push(line)
+  }
+  flush()
+  return sections
+}
+
+/** Turns whatever the summary endpoint returns (markdown text, or an object of text / list fields) into ordered sections. */
 function normalizeSummary(raw: unknown): SummarySection[] {
-  if (typeof raw === 'string') return raw.trim() ? [{ title: '', body: raw.trim(), items: [] }] : []
+  if (typeof raw === 'string') return markdownSections(raw.trim())
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
   const entries = Object.entries(raw as Record<string, unknown>).filter(([key]) => !SUMMARY_META_KEYS.has(key))
   const sections: SummarySection[] = []
   for (const [key, value] of entries) {
     const onlyText = entries.length === 1 || key === 'summary' || key === 'text'
     const title = onlyText && entries.length === 1 ? '' : key === 'summary' || key === 'text' ? 'Overview' : prettyKey(key)
-    if (typeof value === 'string' && value.trim()) sections.push({ title, body: value.trim(), items: [] })
+    if (typeof value === 'string' && value.trim()) sections.push(...markdownSections(value.trim(), title).map(s => !title || s.title === title ? s : { ...s, title: `${title} · ${s.title}` }))
     else if (Array.isArray(value)) {
       const items = value.map(v => typeof v === 'string' ? v.trim() : v && typeof v === 'object' ? Object.values(v).filter(x => typeof x === 'string').join(' — ') : String(v)).filter(Boolean)
       if (items.length) sections.push({ title, body: '', items })
@@ -78,7 +102,7 @@ function normalizeSummary(raw: unknown): SummarySection[] {
 }
 
 function summaryToText(sections: SummarySection[]): string {
-  return sections.map(s => [s.title, s.body, ...s.items.map(i => `- ${i}`)].filter(Boolean).join('\n')).join('\n\n')
+  return sections.map(s => [s.title && `## ${s.title}`, s.body, ...s.items.map(i => `- ${i}`)].filter(Boolean).join('\n')).join('\n\n')
 }
 
 function readJSON<T>(key: string, fallback: T): T {
@@ -699,8 +723,8 @@ export default function ResearchPage() {
               {!summaryLoading && summaryError && <div className="research-api-error" role="alert"><span>{summaryError}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => void loadSummary(selected.id, true)}>Retry</Button></div>}
               {!summaryLoading && !summaryError && summarySections.map((section, index) => <section className="research-summary-section" key={`${section.title}-${index}`}>
                 <div className="research-section-title"><span className="research-section-index">{String(index + 1).padStart(2, '0')}</span>{section.title && <h3>{section.title}</h3>}</div>
-                {section.body && <p className="research-summary-body">{section.body}</p>}
-                {section.items.length > 0 && <ul className="research-summary-list">{section.items.map((item, i) => <li key={i}>{item}</li>)}</ul>}
+                {section.body && <SummaryMarkdown text={section.body} />}
+                {section.items.length > 0 && <ul className="research-summary-list">{section.items.map((item, i) => <li key={i}><InlineMarkdown text={item} /></li>)}</ul>}
               </section>)}
             </div>
             <DialogFooter>
