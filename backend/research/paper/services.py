@@ -6,7 +6,22 @@ from backend.research.paper.repository import (PaperRepository, PaperAuthorRepos
 from storage.research.models import (Paper, PaperAuthor, PaperTopic, ResearchInterest, utc_now, RecommendationItem, 
                                      InterestType, RecommendationMode, RecommendationRun, RecommendationStatus, PaperInteraction, PaperAction, UserProfile)
 from typing import List
-from backend.research.schemas import PaperCreate, PaperStateRead
+from backend.research.schemas import PaperCreate, PaperStateRead, PaperCredibilityResponse, CredibilityReport, CredibilityEvidence
+from agents.research.summary_agent import SummaryAgent
+from agents.research.state import PaperAnalysisState
+
+
+from fastapi import HTTPException
+from pydantic import ValidationError
+from backend.init import engine
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+
+def session_factory() -> Session:
+    return Session(engine)
 
 LOCAL_USER_ID = 1
 
@@ -14,6 +29,10 @@ class NoSearchHistoryError(Exception):
     pass
 
 class PaperServices:
+
+    def session_factory(self) -> Session:
+        return Session(engine)
+
 
     def __init__(self, session: Session):
         self.session = session
@@ -70,13 +89,11 @@ class PaperServices:
         )
 
         if existing is not None:
-            # Refresh metadata from OpenAlex
             try:
                 existing.is_open_access = data.is_open_access
                 existing.pdf_url = data.pdf_url
                 existing.oa_url = data.oa_url
 
-                # Refresh DOI and landing page
                 existing.doi = data.doi
                 existing.landing_page_url = data.landing_page_url
 
@@ -90,7 +107,6 @@ class PaperServices:
                 self.session.rollback()
                 raise
 
-        # Create a new paper
         paper_data = data.model_dump(
             exclude={"authors", "topics"}
         )
@@ -148,6 +164,88 @@ class PaperServices:
             raise ValueError("Offset cant be negative")
 
         return self.repository.get_detailed_papers(limit, offset)
+
+    
+    async def generate_credibility(
+        self,
+        paper_id: int
+    ) -> PaperCredibilityResponse:
+
+        with self.session_factory() as session:
+            paper = session.get(Paper, paper_id)
+
+            if paper is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Paper {paper_id} not found"
+                )
+
+        try:
+            agent = SummaryAgent(
+                session_factory=self.session_factory
+            )
+
+            result = await agent.graph.ainvoke({
+                "paper_id": paper_id,
+                "requested_tasks": ["credibility"]
+            })
+
+            state = PaperAnalysisState.model_validate(result)
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc)
+            ) from exc
+
+        except Exception as exc:
+            logger.exception(
+                "Credibility assessment failed for paper %s",
+                paper_id
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to assess paper credibility"
+            ) from exc
+
+        # STEP 3: Validate output
+        if (
+            state.credibility is None
+            or "credibility" not in state.completed_tasks
+        ):
+            raise HTTPException(
+                status_code=502,
+                detail="Credibility assessment was not completed"
+            )
+
+        try:
+            credibility = CredibilityReport.model_validate(
+                state.credibility
+            )
+        except ValidationError as exc:
+            logger.exception(
+                "Invalid credibility report for paper %s",
+                paper_id
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Invalid credibility report returned"
+            ) from exc
+
+        if not credibility.report.strip():
+            raise HTTPException(
+                status_code=502,
+                detail="The AI returned an empty credibility report"
+            )
+
+        # STEP 4: Return response
+        return PaperCredibilityResponse(
+            paper_id=paper_id,
+            title=state.title,
+            credibility=credibility
+        )
+
 
         
         

@@ -138,3 +138,24 @@ class PaperSummaryResponse(SQLModel):
     title: str | None = None
     summary: str
     content_source: Literal["pdf", "abstract"] | None = None
+
+class CredibilityEvidence(SQLModel):
+    source_id: str
+    heading: str
+    page_start: int | None = None
+    page_end: int | None = None
+
+
+class CredibilityReport(SQLModel):
+    scope: Literal["paper_internal"]
+    report: str
+    evidence_index: list[CredibilityEvidence] = Field(
+        default_factory=list
+    )
+    content_source: Literal["pdf", "abstract"] | None = None
+
+
+class PaperCredibilityResponse(SQLModel):
+    paper_id: int
+    title: str | None = None
+    credibility: CredibilityReport

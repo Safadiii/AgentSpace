@@ -4,7 +4,7 @@ import {
   Check, ChevronDown, Command, Compass, Copy,
   FileText, Folder, FolderPlus,
   MessageCircle, NotebookPen,
-  PanelRightClose, PanelRightOpen, Plus, Search, Sparkles, X, BookText, RefreshCw
+  PanelRightClose, PanelRightOpen, Plus, Search, ShieldCheck, Sparkles, X, BookText, RefreshCw
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Input } from './components/ui/input'
@@ -15,7 +15,7 @@ import {
   DialogHeader, DialogTitle,
 } from './components/ui/dialog'
 import { researchApi } from './api/researchApi'
-import type { PaperRead, PaperDetailedRead, ResearchRunResponse, PaperStateRead } from './api/researchApi'
+import type { PaperRead, PaperDetailedRead, ResearchRunResponse, PaperStateRead, CredibilityReport } from './api/researchApi'
 import './css/research.css'
 import ResearchResultsModal from './components/research/ResearchResultsModal'
 import PaperFeedbackActions from './components/research/PaperFeedbackActions'
@@ -23,7 +23,7 @@ import SummaryMarkdown, { InlineMarkdown } from './lib/SummaryMarkdown'
 import type { PaperAction } from './api/researchApi'
 
 type LibraryView = 'all' | 'saved' | `collection:${string}`
-type ResearchAction = 'summarize' | 'ask' | 'compare' | 'notes' | 'collection'
+type ResearchAction = 'summarize' | 'ask' | 'compare' | 'notes' | 'credibility' | 'collection'
 type SortKey = 'newest' | 'oldest' | 'title'
 
 type Paper = {
@@ -47,6 +47,7 @@ const PREFERENCES_KEY = 'olympus:research-paper-preferences:v1'
 const ABSTRACTS_KEY = 'olympus:research-abstract-cache:v1'
 const COLLECTIONS_KEY = 'olympus:research-collections:v1'
 const SUMMARIES_KEY = 'olympus:research-summary-cache:v1'
+const CREDIBILITY_KEY = 'olympus:research-credibility-cache:v1'
 
 type SummarySection = { title: string; body: string; items: string[] }
 
@@ -99,6 +100,17 @@ function normalizeSummary(raw: unknown): SummarySection[] {
   }
   // Overview first, then the rest in the order the API sent them.
   return sections.sort((a, b) => Number(b.title === 'Overview') - Number(a.title === 'Overview'))
+}
+
+/** The credibility report is markdown; its evidence index becomes a final list so cited source ids can be traced. */
+function credibilitySections(report: CredibilityReport): SummarySection[] {
+  const sections = normalizeSummary(report.report)
+  const items = report.evidence_index.map(e => {
+    const pages = e.page_start == null ? '' : e.page_end != null && e.page_end !== e.page_start ? ` (pp. ${e.page_start}–${e.page_end})` : ` (p. ${e.page_start})`
+    return `**${e.source_id}** — ${e.heading}${pages}`
+  })
+  if (items.length) sections.push({ title: 'Evidence index', body: '', items })
+  return sections
 }
 
 function summaryToText(sections: SummarySection[]): string {
@@ -154,6 +166,7 @@ const actionInfo: Record<ResearchAction, { label: string; description: string }>
   summarize: { label: 'Summarize paper', description: 'Prepare a concise, structured research summary.' },
   ask: { label: 'Ask Research Agent', description: 'Ask a question about the selected paper.' },
   compare: { label: 'Compare papers', description: 'Choose a second paper for a side-by-side analysis.' },
+  credibility: { label: 'Assess credibility', description: "Review the paper's methods, evidence, and limitations from its own text." },
   notes: { label: 'Extract key notes', description: 'Prepare an extraction request for the research agent.' },
   collection: { label: 'Save to collection', description: 'Organize this paper in your library.' },
 }
@@ -209,6 +222,10 @@ export default function ResearchPage() {
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryError, setSummaryError] = useState('')
   const summaryAbort = useRef<AbortController | null>(null)
+  const [credibility, setCredibility] = useState<Record<string, CredibilityReport>>(() => readJSON(CREDIBILITY_KEY, {}))
+  const [credibilityLoading, setCredibilityLoading] = useState(false)
+  const [credibilityError, setCredibilityError] = useState('')
+  const credibilityAbort = useRef<AbortController | null>(null)
 
   // Never display one user's or paper's feedback while another paper is selected.
   const displayedPaperState = selectedPaperState?.paperId === selectedId
@@ -220,6 +237,8 @@ export default function ResearchPage() {
   useEffect(() => { writeJSON(COLLECTIONS_KEY, extraCollections) }, [extraCollections])
   useEffect(() => { writeJSON(SUMMARIES_KEY, summaries) }, [summaries])
   useEffect(() => () => summaryAbort.current?.abort(), [])
+  useEffect(() => { writeJSON(CREDIBILITY_KEY, credibility) }, [credibility])
+  useEffect(() => () => credibilityAbort.current?.abort(), [])
 
   const loadPapers = useCallback(async (offset = 0, signal?: AbortSignal) => {
     if (offset === 0) setLoading(true)
@@ -398,6 +417,8 @@ export default function ResearchPage() {
     return sort === 'oldest' ? ya - yb : yb - ya
   }), [papers, search, view, sort])
   const summarySections = useMemo(() => selectedId && summaries[selectedId] ? normalizeSummary(summaries[selectedId]) : [], [summaries, selectedId])
+  const selectedCredibility = selectedId ? credibility[selectedId] : undefined
+  const credibilitySectionList = useMemo(() => selectedCredibility?.report ? credibilitySections(selectedCredibility) : [], [selectedCredibility])
   const savedCount = papers.filter(p => p.saved).length
   const otherPapers = papers.filter(p => p.id !== selected?.id)
   const compared = otherPapers.find(p => p.id === compareId) ?? otherPapers[0]
@@ -515,10 +536,33 @@ export default function ResearchPage() {
       if (!controller.signal.aborted) setSummaryLoading(false)
     }
   }
+  // Same cache-then-regenerate pattern as the summary: one AI call per paper unless "Regenerate" is pressed.
+  async function loadCredibility(paperId: string, force = false) {
+    if (!force && credibility[paperId]?.report) return
+    credibilityAbort.current?.abort()
+    const controller = new AbortController()
+    credibilityAbort.current = controller
+    setCredibilityLoading(true)
+    setCredibilityError('')
+    try {
+      const result = await researchApi.generateCredibility(Number(paperId), controller.signal)
+      if (controller.signal.aborted) return
+      if (!result.credibility?.report?.trim()) throw new Error('The credibility report came back empty. Try regenerating.')
+      setCredibility(current => ({ ...current, [paperId]: result.credibility }))
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setCredibilityError(error instanceof Error ? error.message : 'Unable to assess credibility.')
+    } finally {
+      if (!controller.signal.aborted) setCredibilityLoading(false)
+    }
+  }
   function closeAction() {
     summaryAbort.current?.abort()
+    credibilityAbort.current?.abort()
     setSummaryLoading(false)
     setSummaryError('')
+    setCredibilityLoading(false)
+    setCredibilityError('')
     setAction(null)
   }
   function chooseAction(next: ResearchAction) {
@@ -527,6 +571,7 @@ export default function ResearchPage() {
     setCompareId(otherPapers[0]?.id ?? '')
     setAction(next)
     if (next === 'summarize' && selected) void loadSummary(selected.id)
+    if (next === 'credibility' && selected) void loadCredibility(selected.id)
   }
 
   const showAgent = selected !== null
@@ -536,10 +581,22 @@ export default function ResearchPage() {
     : search.trim()
       ? `${filtered.length} ${filtered.length === 1 ? 'result' : 'results'} for “${search.trim()}”`
       : `${filtered.length} ${filtered.length === 1 ? 'paper' : 'papers'}`
+  // Summary and credibility share one dialog view.
+  const credibilityNote = selectedCredibility
+    ? `Assessed from the paper's own text only (${selectedCredibility.content_source === 'pdf' ? 'full PDF' : selectedCredibility.content_source === 'abstract' ? 'abstract only, so treat it as limited' : 'source unknown'}). Claims were not checked against outside sources.`
+    : ''
+  const generated = action === 'summarize' ? {
+    label: 'SUMMARY', loadingText: 'Athena is reading the paper…', copyLabel: 'Copy summary', copied: 'Summary copied.', note: '',
+    loading: summaryLoading, error: summaryError, sections: summarySections, regenerate: (id: string) => void loadSummary(id, true),
+  } : action === 'credibility' ? {
+    label: 'CREDIBILITY', loadingText: 'Athena is checking the evidence…', copyLabel: 'Copy report', copied: 'Credibility report copied.', note: credibilityNote,
+    loading: credibilityLoading, error: credibilityError, sections: credibilitySectionList, regenerate: (id: string) => void loadCredibility(id, true),
+  } : null
   const agentActions = [
     { key: 'summarize', icon: Sparkles, subtitle: 'A concise, structured overview' },
     { key: 'ask', icon: MessageCircle, subtitle: 'Explore ideas and ask questions' },
     { key: 'compare', icon: Compass, subtitle: 'Differences and overlaps' },
+    { key: 'credibility', icon: ShieldCheck, subtitle: 'Evidence, methods, limitations' },
     { key: 'notes', icon: NotebookPen, subtitle: 'Methods and key findings' },
     { key: 'collection', icon: FolderPlus, subtitle: 'Organize in your library' },
   ] as const
@@ -709,19 +766,20 @@ export default function ResearchPage() {
       </Dialog>
 
       <Dialog open={action !== null} onOpenChange={open => { if (!open) closeAction() }}>
-        <DialogContent className="research-dialog"><DialogHeader><DialogTitle>{action ? actionInfo[action].label : ''}</DialogTitle><DialogDescription>{action ? actionInfo[action].description : ''} {action !== 'collection' && action !== 'summarize' && 'This action has no corresponding backend endpoint yet. You can copy its instruction.'}</DialogDescription></DialogHeader>
-          {action === 'summarize' && selected ? <div className="research-action-form">
+        <DialogContent className="research-dialog"><DialogHeader><DialogTitle>{action ? actionInfo[action].label : ''}</DialogTitle><DialogDescription>{action ? actionInfo[action].description : ''} {action !== 'collection' && action !== 'summarize' && action !== 'credibility' && 'This action has no corresponding backend endpoint yet. You can copy its instruction.'}</DialogDescription></DialogHeader>
+          {generated && selected ? <div className="research-action-form">
             <div className="research-summary-head">
-              <span className="research-eyebrow">SUMMARY <span className="research-dot-separator">·</span> {selected.year}</span>
+              <span className="research-eyebrow">{generated.label} <span className="research-dot-separator">·</span> {selected.year}</span>
               <strong>{selected.title}</strong>
+              {generated.note && !generated.loading && !generated.error && <p className="research-feedback-hint">{generated.note}</p>}
             </div>
-            <div className="research-summary-scroll" aria-busy={summaryLoading}>
-              {summaryLoading && <div className="research-summary-loading" role="status">
-                <span className="research-summary-status"><span className="research-run-dot research-run-dot--live"/>Athena is reading the paper…</span>
+            <div className="research-summary-scroll" aria-busy={generated.loading}>
+              {generated.loading && <div className="research-summary-loading" role="status">
+                <span className="research-summary-status"><span className="research-run-dot research-run-dot--live"/>{generated.loadingText}</span>
                 {[92, 100, 78, 96, 60].map((w, i) => <span key={i} className="research-skeleton research-skeleton--line" style={{ width: `${w}%` }} aria-hidden="true"/>)}
               </div>}
-              {!summaryLoading && summaryError && <div className="research-api-error" role="alert"><span>{summaryError}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => void loadSummary(selected.id, true)}>Retry</Button></div>}
-              {!summaryLoading && !summaryError && summarySections.map((section, index) => <section className="research-summary-section" key={`${section.title}-${index}`}>
+              {!generated.loading && generated.error && <div className="research-api-error" role="alert"><span>{generated.error}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => generated.regenerate(selected.id)}>Retry</Button></div>}
+              {!generated.loading && !generated.error && generated.sections.map((section, index) => <section className="research-summary-section" key={`${section.title}-${index}`}>
                 <div className="research-section-title"><span className="research-section-index">{String(index + 1).padStart(2, '0')}</span>{section.title && <h3>{section.title}</h3>}</div>
                 {section.body && <SummaryMarkdown text={section.body} />}
                 {section.items.length > 0 && <ul className="research-summary-list">{section.items.map((item, i) => <li key={i}><InlineMarkdown text={item} /></li>)}</ul>}
@@ -729,8 +787,8 @@ export default function ResearchPage() {
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={closeAction}>Close</Button>
-              <Button variant="outline" disabled={summaryLoading} onClick={() => void loadSummary(selected.id, true)}><RefreshCw size={15}/> Regenerate</Button>
-              <Button disabled={summaryLoading || summarySections.length === 0} onClick={() => void copyText(summaryToText(summarySections), 'Summary copied.')}><Copy size={15}/> Copy summary</Button>
+              <Button variant="outline" disabled={generated.loading} onClick={() => generated.regenerate(selected.id)}><RefreshCw size={15}/> Regenerate</Button>
+              <Button disabled={generated.loading || generated.sections.length === 0} onClick={() => void copyText(summaryToText(generated.sections), generated.copied)}><Copy size={15}/> {generated.copyLabel}</Button>
             </DialogFooter>
           </div> : action === 'collection' ? <div className="research-action-form"><label htmlFor="collection-name">Collection</label><Input id="collection-name" value={draftCollection} onChange={e => setDraftCollection(e.target.value)} placeholder="Collection name"/><div className="research-collection-suggestions">{collections.map(c => <button key={c} className={draftCollection === c ? 'is-active' : ''} type="button" onClick={() => setDraftCollection(c)}><Folder size={13}/>{c}</button>)}</div><DialogFooter><Button variant="ghost" onClick={() => setAction(null)}>Cancel</Button><Button onClick={saveCollection} disabled={!draftCollection.trim()}>Save to collection</Button></DialogFooter></div> : action ? <div className="research-action-form">
             {action === 'ask' && <><label htmlFor="ask-question">Your question</label><textarea className="research-dialog-textarea" id="ask-question" rows={3} value={question} onChange={e => setQuestion(e.target.value)} placeholder="What assumptions does this method make?"/></>}

@@ -5,7 +5,7 @@ from backend.init import engine
 
 from storage.research.models import Paper
 from backend.init import get_session
-from backend.research.schemas import PaperRead, PaperSummaryResponse, PaperCreate, PaperDetailedRead, ResearchRunResponse, PaperInteractionRead, PaperInteractionCreate, PaperStateRead
+from backend.research.schemas import PaperRead, PaperSummaryResponse, PaperCreate, PaperDetailedRead, ResearchRunResponse, PaperInteractionRead, PaperInteractionCreate, PaperStateRead, PaperCredibilityResponse
 from backend.research.paper.services import PaperServices, RecommendationRunServices, PaperInteractionServices, ImpressionNotFoundError
 from typing import List
 from agents.research.summary_agent import SummaryAgent
@@ -180,3 +180,12 @@ async def generate_paper_summary(paper_id: int):
         summary=state.summary,
         content_source=state.content_source
     )
+
+
+@paper_router.post(
+    "/papers/{paper_id}/credibility",
+    response_model=PaperCredibilityResponse,
+)
+async def generate_credibility(paper_id: int, session: DBSession):
+    service = PaperServices(session)
+    return await service.generate_credibility(paper_id)

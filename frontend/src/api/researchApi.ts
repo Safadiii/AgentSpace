@@ -123,6 +123,26 @@ export interface PaperSummaryResponse {
   content_source: 'pdf' | 'abstract' | null
 }
 
+export interface CredibilityEvidence {
+  source_id: string
+  heading: string
+  page_start: number | null
+  page_end: number | null
+}
+
+export interface CredibilityReport {
+  scope: 'paper_internal'
+  report: string
+  evidence_index: CredibilityEvidence[]
+  content_source: 'pdf' | 'abstract' | null
+}
+
+export interface PaperCredibilityResponse {
+  paper_id: number
+  title: string | null
+  credibility: CredibilityReport
+}
+
 async function call<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     ...options,
@@ -156,16 +176,17 @@ export const researchApi = {
     call<ResearchRunResponse>(`/runs/${runId}`, { signal }),
   interaction: (paperId: number, data: PaperInteractionCreate) =>
     call<PaperInteractionRead>(`/papers/${paperId}/interactions`, { method: 'POST', body: JSON.stringify(data) }),
-  // Legacy helper for ResearchResultsModal: uses the new generalized route.
   impression: (paperId: number, impression: PaperImpressionCreate) =>
     call<PaperInteractionRead>(`/papers/${paperId}/interactions`, {
       method: 'POST', body: JSON.stringify({ ...impression, action: 'IMPRESSION' }),
     }),
-    paperState: (paper_id: number, signal?: AbortSignal) =>
-      call<PaperStateRead>(`/papers/${paper_id}/interactions`, { signal}),
-    generateSummary: (paperId: number, signal?: AbortSignal) =>
-      call<PaperSummaryResponse>(`/papers/${paperId}/summary`, {
-        method: 'POST',
-        signal,
-      }),
+  paperState: (paper_id: number, signal?: AbortSignal) =>
+    call<PaperStateRead>(`/papers/${paper_id}/interactions`, { signal}),
+  generateSummary: (paperId: number, signal?: AbortSignal) =>
+    call<PaperSummaryResponse>(`/papers/${paperId}/summary`, {
+      method: 'POST',
+      signal,
+    }),
+  generateCredibility: (paperId: number, signal?: AbortSignal) =>
+    call<PaperCredibilityResponse>(`/papers/${paperId}/credibility`,{method: 'POST', signal,}),
 }
