@@ -1,5 +1,5 @@
 from core.base_agent import BaseAgent, AgentDefinition
-from agents.research.state import PaperAnalysisState, PaperSection, PaperSummary
+from agents.research.state import PaperAnalysisState, PaperSection, PaperEvidence
 import os
 from sqlmodel import Session
 from typing import Callable
@@ -11,9 +11,7 @@ import socket
 from urllib.parse import urljoin, urlsplit
 from langgraph.graph import StateGraph, START, END
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
-from backend.init import engine
 from collections.abc import Hashable
-
 
 import httpx
 import pymupdf
@@ -109,9 +107,9 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
         super().__init__()
 
     def route_source(self, state: PaperAnalysisState) -> str:
-        if state.pdf_url:
-            return "pdf"
-        return "abstract"
+        if (state.sections and state.content_source == "pdf"):
+            return "cached"
+        return "pdf" if state.pdf_url else "abstract"
 
     def route_extraction(self, state: PaperAnalysisState) -> str:
         if state.extraction_ok:
@@ -171,6 +169,13 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
             ],
             "content_source": "abstract",
             "extraction_ok": False,
+        }
+
+    async def reuse_sections(self, state: PaperAnalysisState) -> dict:
+        return {
+            "sections": state.sections,
+            "content_source": "pdf",
+            "extraction_ok": True
         }
 
     async def extract_pdf(self, state: PaperAnalysisState) -> dict:
@@ -464,6 +469,73 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
             ),
         }
 
+    def prepare_evidence(self, state: PaperAnalysisState) -> dict:
+        if not state.active_context:
+            raise ValueError("No Sections available for evidence preparation")
+
+        evidence_terms = (
+            "method", "experiment", "dataset",
+            "baseline", "evaluation", "result",
+            "sample", "statistical", "limitation",
+            "reproducib", "ablation", "significant",
+            "accuracy", "performance", "bias",
+        )
+
+        max_items = 24
+        max_excerpt_chars = 800
+        passages_by_section = []
+
+        for section_index, section in enumerate(state.active_context):
+            paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n",section.text,) if paragraph.strip()]
+            paragraphs = [p for p in paragraphs if len(p) >= 40] or [section.text.strip()]
+
+            def score(passage: str) -> int:
+                lowered = passage.lower()
+                return sum(term in lowered for term in evidence_terms)
+
+            ranked = sorted(enumerate(paragraphs), key=lambda item: (-score(item[1]), item[0]))
+
+            passages_by_section.append((section_index, section, [p for _, p in ranked[:2]]))
+
+            evidence = []
+
+            for round_index in range(2):
+                for section_index, section, passages in (passages_by_section):
+                    if len(evidence) >= max_items:
+                        break
+                    if round_index >= len(passages):
+                        continue
+
+                    passage = passages[round_index]
+                    if len(passage) > max_excerpt_chars:
+                        lowered = passage.lower()
+
+                        positions = [lowered.find(term) for term in evidence_terms if term in lowered]
+
+                        position = (min(positions) if positions else 0)
+
+                        start = max(0, position - 120)
+
+                        excerpt = passage[start:start + max_excerpt_chars].strip()
+                    else:
+                        excerpt = passage
+
+                    if not excerpt: 
+                        continue
+
+                    evidence.append(PaperEvidence(source_id=f"S{len(evidence) + 1}",
+                                                  section_index=section_index,
+                                                  heading=section.heading,
+                                                  excerpt=excerpt,
+                                                  page_start=(section.page_start if state.content_source == "pdf" else None),
+                                                  page_end=(section.page_end if state.content_source == "pdf" else None)))
+        if not evidence:
+            raise ValueError("No usable evidence found")
+
+        return {
+            "evidence_candidates": evidence,
+        }
+
     def retrieve_credibility(self, state: PaperAnalysisState) -> dict:
         if not state.sections:
             raise ValueError("No Indexed Sections Available")
@@ -535,6 +607,96 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
             "active_context": selected_sections
         }
 
+    def verify_evidence(self, state: PaperAnalysisState) -> dict:
+        if not state.credibility:
+            raise ValueError("No credibility evidence found")
+
+        report = state.credibility.get("report", "")
+
+        if not isinstance(report, str) or not report.strip():
+            raise ValueError("Credibility report is empty")
+
+        candidates = {evidence.source_id: evidence for evidence in state.evidence_candidates}
+
+        cited_ids = list(dict.fromkeys(re.findall(r"\[(S[1-9]\d*)\]", report)))
+
+        verified_evidence = []
+        invalid_ids = set()
+        warnings = []
+
+        for source_id in cited_ids:
+            evidence = candidates.get(source_id)
+
+            if evidence is None:
+                invalid_ids.add(source_id)
+                warnings.append(f"{source_id}: unknown source identifier")
+                continue
+
+            index = evidence.section_index
+
+            if not (0 <= index < len(state.active_context)):
+                invalid_ids.add(source_id)
+                warnings.append(f"{source_id}: original section unavailable")
+                continue
+
+            original_section = state.active_context[index]
+
+            if(evidence.heading != original_section.heading or evidence.excerpt not in original_section.text):
+                invalid_ids.add(source_id)
+                warnings.append(f"{source_id}: excerpt does not match "
+                "the original indexed section")
+                continue
+
+            verified_evidence.append({
+                "source_id": evidence.source_id,
+                "heading": evidence.heading,
+                "page_start": evidence.page_start,
+                "page_end": evidence.page_end,
+                "excerpt": evidence.excerpt,
+            })
+
+        def replace_citation(match: re.Match) -> str:
+            source_id = match.group(1)
+
+            if source_id in invalid_ids:
+                return f"(unverified citation {source_id})"
+
+            return match.group(0)
+
+        report = re.sub(
+            r"\[(S[1-9]\d*)\]",
+            replace_citation,
+            report,
+        )
+
+        if not cited_ids:
+            warnings.append("The report contains no source citations")
+
+        if not verified_evidence:
+            status = "unverified"
+        elif warnings:
+            status = "partial"
+        else:
+            status = "source_matched"
+
+        updated_credibility = {
+            **state.credibility,
+            "report": report,
+            "evidence_index": verified_evidence,
+            "citation_status": status,
+            "citation_warnings": warnings,
+        }
+
+        completed_tasks = list(state.completed_tasks)
+
+        if "credibility" not in completed_tasks:
+            completed_tasks.append("credibility")
+
+        return {
+            "credibility": updated_credibility,
+            "completed_tasks": completed_tasks,
+        }
+
     async def assess_credibility(self, state: PaperAnalysisState) -> dict:
         if not state.active_context:
             raise ValueError("No sections available for credibility report")
@@ -542,32 +704,26 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
         context_parts = []
         evidence_index = []
 
-        for index, section in enumerate(state.active_context, start=1):
-            source_id = f"S{index}"
-            if state.content_source == "pdf":
-                pages = (
-                    f"{section.page_start}-{section.page_end}"
-                    if section.page_start is not None
-                    else "Unknown"
-                )
-                page_start = section.page_start
-                page_end = section.page_end
-            else:
-                pages = "Not available"
-                page_start = None
-                page_end = None
-            evidence_index.append({
-                "source_id": source_id,
-                "heading": section.heading,
-                "page_start": page_start,
-                "page_end": page_end,
-            })
+        if not state.evidence_candidates:
+            raise ValueError("No prepared evidence for credibility assessment")
 
-            context_parts.append(            
-                f"[{source_id}]\n"
-                f"Section: {section.heading}\n"
-                f"Pages: {pages}\n"
-                f"Content:\n{section.text}"
+        context_parts = []
+
+        for evidence in state.evidence_candidates:
+            if evidence.page_start is not None:
+                pages = (
+                    f"{evidence.page_start}"
+                    if evidence.page_start == evidence.page_end
+                    else f"{evidence.page_start}-{evidence.page_end}"
+                )
+            else:
+                pages = "Unavailable"
+
+            context_parts.append(
+                f"[{evidence.source_id}]\n"
+                f"Section: {evidence.heading}\n"
+                f"Section Pages: {pages}\n"
+                f"Source Passage:\n{evidence.excerpt}"
             )
 
         context = "\n\n---\n\n".join(context_parts)
@@ -699,16 +855,11 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
             "credibility": {
                 "scope": "paper_internal",
                 "report": report,
-                "evidence_index": evidence_index,
+                "evidence_index": [],
                 "content_source": state.content_source,
             },
-            "completed_tasks": (
-                state.completed_tasks
-                if "credibility" in state.completed_tasks
-                else [*state.completed_tasks, "credibility"]
-            ),
         }
-
+            
 
 
     def define_graph(self, graph: StateGraph) -> None:
@@ -720,6 +871,9 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
         graph.add_node("retrieve_credibility", self.retrieve_credibility)
         graph.add_node("assess_credibility", self.assess_credibility)
         graph.add_node("summarize", self.summarize)
+        graph.add_node("reuse_sections", self.reuse_sections)
+        graph.add_node("prepare_evidence", self.prepare_evidence)
+        graph.add_node("verify_evidence", self.verify_evidence)
 
         graph.add_edge(START, "load_paper")
         graph.add_conditional_edges(
@@ -727,6 +881,7 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
             self.route_source,
             {
                 "pdf": "extract_pdf",
+                "cached": "reuse_sections",
                 "abstract": "use_abstract",
             }
         )
@@ -738,16 +893,22 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
                 "fallback": "use_abstract",
             }
         )
-        graph.add_edge(
-            "use_abstract",
-            "index_sections"
-        )
 
         task_routes: dict[Hashable, str] = {
             "summary": "retrieve_summary",
             "credibility": "retrieve_credibility",
             "done": END,
         }
+
+        graph.add_conditional_edges("reuse_sections",
+                                    self.route_next_task,
+                                    task_routes,)
+        graph.add_edge(
+            "use_abstract",
+            "index_sections"
+        )
+
+
 
         graph.add_conditional_edges(
             "index_sections",
@@ -760,6 +921,16 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
             "summarize"
         )
 
+        graph.add_edge("retrieve_credibility", "prepare_evidence")
+        graph.add_edge("prepare_evidence", "assess_credibility")
+        graph.add_edge("assess_credibility", "verify_evidence")
+
+        graph.add_conditional_edges(
+            "verify_evidence",
+            self.route_next_task,
+            task_routes,
+        )
+
         graph.add_conditional_edges(
             "summarize",
             self.route_next_task,
@@ -767,13 +938,3 @@ class SummaryAgent(BaseAgent[PaperAnalysisState]):
         )
 
 
-        graph.add_edge(
-            "retrieve_credibility",
-            "assess_credibility"
-        )
-
-        graph.add_conditional_edges(
-            "assess_credibility",
-            self.route_next_task,
-            task_routes
-        )

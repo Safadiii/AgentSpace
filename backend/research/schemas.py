@@ -144,6 +144,7 @@ class CredibilityEvidence(SQLModel):
     heading: str
     page_start: int | None = None
     page_end: int | None = None
+    excerpt: str | None = None
 
 
 class CredibilityReport(SQLModel):
@@ -153,6 +154,13 @@ class CredibilityReport(SQLModel):
         default_factory=list
     )
     content_source: Literal["pdf", "abstract"] | None = None
+    citation_status: Literal[
+        "source_matched",
+        "partial",
+        "unverified",
+    ] = "unverified"
+
+    citation_warnings: list[str] = Field(default_factory=list)
 
 
 class PaperCredibilityResponse(SQLModel):

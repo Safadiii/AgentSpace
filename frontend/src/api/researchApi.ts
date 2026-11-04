@@ -125,7 +125,9 @@ export interface PaperSummaryResponse {
 
 export interface CredibilityEvidence {
   source_id: string
+  section_index?: number
   heading: string
+  excerpt?: string | null
   page_start: number | null
   page_end: number | null
 }

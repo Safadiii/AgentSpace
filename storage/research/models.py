@@ -262,3 +262,25 @@ class PaperInteraction(SQLModel, table=True):
     recommendation_item: RecommendationItem | None = Relationship(
         back_populates="interactions"
     )
+
+class PaperAnalysis(SQLModel, table=True):
+    __tablename__ = "paper_analyses"
+    __table_args__ = (UniqueConstraint("paper_id", name="uq_paper_analyses_paper_id"),)
+    id: int | None = Field(default=None, primary_key=True)
+    paper_id: int = Field(foreign_key="papers.id", index=True)
+
+    summary: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    credibility: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    summary_source: str | None = None
+    credibility_source: str | None = None
+    source_signature: str | None = None
+
+    summary_updated_at: datetime | None = None
+    credibility_updated_at: datetime | None = None
+
+class PaperExtractionCache(SQLModel, table=True):
+    __tablename__ = "paper_extraction_cache"
+    paper_id: int = Field(primary_key=True, foreign_key="papers.id")
+    source_signature: str = Field(max_length=64)
+    sections: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    extracted_at: datetime = Field(default_factory=utc_now)

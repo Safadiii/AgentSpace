@@ -1,23 +1,29 @@
-from sqlmodel import Session
-from datetime import datetime, time, timedelta, timezone
-from backend.research.paper.repository import (PaperRepository, PaperAuthorRepository, 
+from sqlmodel import Session, select
+from typing import Annotated, Literal
+from fastapi import Depends
+from datetime import datetime, time,timedelta, timezone
+from backend.research.paper.repository import (PaperRepository, PaperAuthorRepository,
                                             PaperTopicRepository, ResearchInterestRepository, RecommendationRunRepository,
                                             RecommendationItemRepository, PaperInteractionRepository)
-from storage.research.models import (Paper, PaperAuthor, PaperTopic, ResearchInterest, utc_now, RecommendationItem, 
+from storage.research.models import (Paper, PaperAnalysis, PaperAuthor, PaperTopic, ResearchInterest, utc_now, RecommendationItem, PaperExtractionCache,
                                      InterestType, RecommendationMode, RecommendationRun, RecommendationStatus, PaperInteraction, PaperAction, UserProfile)
 from typing import List
-from backend.research.schemas import PaperCreate, PaperStateRead, PaperCredibilityResponse, CredibilityReport, CredibilityEvidence
+from backend.research.schemas import PaperCreate, PaperSummaryResponse, PaperStateRead, PaperCredibilityResponse, CredibilityReport, CredibilityEvidence
 from agents.research.summary_agent import SummaryAgent
-from agents.research.state import PaperAnalysisState
+from agents.research.state import PaperAnalysisState, PaperSection
 
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from backend.init import engine
+from backend.init import engine, get_session
 import logging
+import os
+import json
+import hashlib
 
 logger = logging.getLogger(__name__)
 
+DBSession = Annotated[Session, Depends(get_session)]
 
 
 def session_factory() -> Session:
@@ -29,7 +35,6 @@ class NoSearchHistoryError(Exception):
     pass
 
 class PaperServices:
-
     def session_factory(self) -> Session:
         return Session(engine)
 
@@ -166,85 +171,223 @@ class PaperServices:
         return self.repository.get_detailed_papers(limit, offset)
 
     
-    async def generate_credibility(
-        self,
-        paper_id: int
-    ) -> PaperCredibilityResponse:
+    async def generate_credibility(self, paper_id: int, force: bool = False) -> PaperCredibilityResponse:
+        cached = self._get_cached_analysis(paper_id)
 
+        if not force and cached["credibility"]:
+            logger.info("Credibility cache hit: paper %s", paper_id)
+            return PaperCredibilityResponse(paper_id=paper_id, title=cached["title"], credibility=CredibilityReport.model_validate(cached["credibility"]))
+        try:
+            state = await self._run_analysis_graph(paper_id=paper_id, task="credibility", pdf_url=cached["pdf_url"])
+
+            if state.credibility is None:
+                raise HTTPException(status_code=502, detail="AI returned no credibility report")
+
+            report = CredibilityReport.model_validate(state.credibility)
+
+            if not report.report.strip():
+                raise HTTPException(status_code=502, detail="AI returned an empty credibility report")
+
+            self._save_analysis(paper_id, cached["signature"], credibility=report.model_dump(mode="json"), content_source=state.content_source)
+
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        except Exception as exc:
+            logger.exception("Credibility assessment failed for paper %s", paper_id)
+
+            raise HTTPException(status_code=500, detail="Failed to assess paper credibility") from exc
+
+        return PaperCredibilityResponse(paper_id=paper_id, title=state.title, credibility=report)
+
+    """
+    Caching and retrieving of analysis and summaries from DB for papers
+    """
+
+    def _get_cached_analysis(self, paper_id: int) -> dict:
         with self.session_factory() as session:
             paper = session.get(Paper, paper_id)
 
-            if paper is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Paper {paper_id} not found"
-                )
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Paper with {paper_id} doesn't exist")
+        # Invalidate data when paper metadata or model is changed
+        signature_data = {
+            "pdf_url": paper.pdf_url,
+            "abstract": paper.abstract,
+            "model": os.getenv("NVIDIA_MODEL"),
+            "pipeline_version": 2
+        }
 
-        try:
-            agent = SummaryAgent(
-                session_factory=self.session_factory
+        signature = hashlib.sha256(json.dumps(signature_data, sort_keys=True).encode("utf-8")).hexdigest()
+
+        statement = select(PaperAnalysis).where(PaperAnalysis.paper_id == paper_id)
+
+        cached: PaperAnalysis | None = session.exec(statement).first()
+
+        valid = (cached is not None and cached.source_signature == signature)
+
+        return {
+            "title": paper.title,
+            "signature": signature,
+            "summary": cached.summary if valid else None,
+            "summary_source": cached.summary_source if valid else None,
+            "credibility": cached.credibility if valid else None,
+            "pdf_url": paper.pdf_url,
+        }
+
+    def _save_analysis(self, paper_id: int, signature: str, *, summary: str | None = None, credibility: dict | None = None, 
+                       content_source: str | None = None) -> None:
+        with self.session_factory() as session:
+            statement = select(PaperAnalysis).where(PaperAnalysis.paper_id == paper_id)
+
+            record = session.exec(statement).first()
+
+            if record is None:
+                record = PaperAnalysis(paper_id=paper_id)
+
+            if record.source_signature != signature:
+                record.summary = None
+                record.credibility = None
+                record.summary_source = None
+                record.credibility_source = None
+                record.summary_updated_at = None
+                record.credibility_updated_at = None
+
+            record.source_signature = signature
+
+            now = datetime.now(timezone.utc)
+
+            if summary is not None:
+                record.summary = summary
+                record.summary_source = content_source
+                record.summary_updated_at = now
+
+            if credibility is not None:
+                record.credibility = credibility
+                record.credibility_source = content_source
+                record.credibility_updated_at = now
+
+            session.add(record)
+            session.commit()
+
+    def _pdf_signature(self, pdf_url: str) -> str:
+        version = "pdf-extraction-v1"
+
+        content = f"{version}:{pdf_url}"
+
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+    def _load_cached_sections(self, paper_id: int, pdf_url: str | None) -> list[PaperSection]:
+        if not pdf_url:
+            return []
+
+        with self.session_factory() as session:
+            cached = session.get(PaperExtractionCache, paper_id)
+
+            if cached is None:
+                return []
+            #Invalid Signature
+            if cached.source_signature != self._pdf_signature(pdf_url):
+                return []
+
+            return [PaperSection.model_validate(section) for section in cached.sections]
+
+    def _saved_cached_section(self, paper_id: int, pdf_url: str, sections: list[PaperSection]) -> None:
+        if not sections:
+            return
+
+        with self.session_factory() as session:
+
+            signature = self._pdf_signature(pdf_url)
+            cached = session.get(PaperExtractionCache, paper_id)
+
+            serialized_sections = [section.model_dump(mode="json") for section in sections]
+
+            if cached is None:
+                cached = PaperExtractionCache(paper_id=paper_id, source_signature=signature, sections=serialized_sections)
+            else:
+                cached.source_signature = signature
+                cached.sections = serialized_sections
+
+            cached.extracted_at = datetime.now(timezone.utc)
+
+            session.add(cached)
+            session.commit()
+
+    """
+    Optimized Graph Running for agent with caching prior
+    """
+    async def _run_analysis_graph(self, paper_id: int, task: Literal["summary", "credibility"], pdf_url: str | None) -> PaperAnalysisState:
+        cached_sections = self._load_cached_sections(paper_id, pdf_url)
+
+        if cached_sections:
+            logger.warning(
+                "PDF extraction cache hit: paper %s",
+                paper_id,
+            )
+        else:
+            logger.warning(
+                "PDF extraction cache MISS: paper %s",
+                paper_id,
             )
 
-            result = await agent.graph.ainvoke({
-                "paper_id": paper_id,
-                "requested_tasks": ["credibility"]
-            })
+        agent = SummaryAgent(session_factory=self.session_factory)
 
-            state = PaperAnalysisState.model_validate(result)
+        result = await agent.graph.ainvoke({
+            "paper_id": paper_id,
+            "requested_tasks": [task],
+            "sections": cached_sections,
+            "content_source": (
+                "pdf" if cached_sections else None
+            ),
+            "extraction_ok": bool(cached_sections),
+        })
 
+        state = PaperAnalysisState.model_validate(result)
+
+        if (not cached_sections and pdf_url and state.content_source == "pdf" and state.extraction_ok and state.sections):
+            try:
+                self._saved_cached_section(paper_id, pdf_url, state.sections)
+            except Exception:
+                logger.exception(f"Failed to cache pdf sections for paper {paper_id}")
+
+        return state
+    """
+    Generating Summary of a proposed paper
+    """
+    async def generate_summary(self, paper_id: int, force: bool = False):
+
+        cached = self._get_cached_analysis(paper_id)
+
+        if not force and cached["summary"]:
+            logger.info("Summary cache hit: paper %s", paper_id)
+
+            return PaperSummaryResponse(paper_id=paper_id, title=cached["title"], summary=cached["summary"],content_source=cached["summary_source"])
+
+        try:
+            state = await self._run_analysis_graph(paper_id=paper_id, task="summary", pdf_url=cached["pdf_url"])
+
+            if not state.summary or not state.summary.strip():
+                raise HTTPException(status_code=502, detail="AI returned an empty summary",)
+            self._save_analysis(paper_id, cached["signature"], summary=state.summary, content_source=state.content_source,)
+        except HTTPException:
+            raise
         except ValueError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=str(exc)
-            ) from exc
-
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:
-            logger.exception(
-                "Credibility assessment failed for paper %s",
-                paper_id
-            )
+            logger.exception("Summary generation failed for paper %s", paper_id)
+            raise HTTPException(status_code=500, detail="Failed to generate paper summary") from exc
 
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to assess paper credibility"
-            ) from exc
+        if not state.summary or not state.summary.strip():
+            raise HTTPException(status_code=502, detail="The analysis completed without a summary")
 
-        # STEP 3: Validate output
-        if (
-            state.credibility is None
-            or "credibility" not in state.completed_tasks
-        ):
-            raise HTTPException(
-                status_code=502,
-                detail="Credibility assessment was not completed"
-            )
+        return PaperSummaryResponse(paper_id=paper_id, title=state.title, summary=state.summary, content_source=state.content_source)
 
-        try:
-            credibility = CredibilityReport.model_validate(
-                state.credibility
-            )
-        except ValidationError as exc:
-            logger.exception(
-                "Invalid credibility report for paper %s",
-                paper_id
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Invalid credibility report returned"
-            ) from exc
+            
 
-        if not credibility.report.strip():
-            raise HTTPException(
-                status_code=502,
-                detail="The AI returned an empty credibility report"
-            )
-
-        # STEP 4: Return response
-        return PaperCredibilityResponse(
-            paper_id=paper_id,
-            title=state.title,
-            credibility=credibility
-        )
 
 
         

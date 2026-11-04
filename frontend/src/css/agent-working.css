@@ -1,0 +1,85 @@
+/* Small, borderless thinking state. The SVG geometry is the Athena mark itself. */
+.aw {
+  --aw-fg: var(--t1, #f4f4f5);
+  --aw-muted: var(--t3, #85858e);
+  --aw-flame: color-mix(in srgb, #d8a73f 86%, var(--aw-fg));
+  --aw-ease: cubic-bezier(.22, 1, .36, 1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  min-width: 0;
+  width: 100%;
+  padding: 3px 0 8px;
+  color: var(--aw-fg);
+}
+.aw-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.aw-mark {
+  display: flex;
+  flex: 0 0 30px;
+  justify-content: center;
+  align-items: center;
+  width: 30px;
+  height: 38px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+.aw-scene { display: block; width: auto; height: 36px; overflow: visible; }
+.aw-mark-dots { fill: var(--aw-fg); opacity: .88; }
+.aw-mark-gold { fill: var(--aw-flame); opacity: .5; }
+.aw-mark-sweep { animation: aw-matrix-sweep 4.2s ease-in-out infinite; }
+@keyframes aw-matrix-sweep {
+  0%, 18% { transform: translateX(0); }
+  70%, 100% { transform: translateX(390px); }
+}
+.aw-info { display: grid; min-width: 0; gap: 3px; align-content: center; }
+.aw-overline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 0.625rem/1.15 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .09em;
+  color: var(--aw-muted);
+  white-space: nowrap;
+}
+.aw-overline-separator { opacity: .5; }
+.aw-beacon {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--aw-flame);
+  animation: aw-beacon-pulse 1.9s ease-in-out infinite;
+}
+@keyframes aw-beacon-pulse { 50% { opacity: .35; } }
+.aw-text {
+  display: grid;
+  align-items: center;
+  min-height: 1.4em;
+  font-size: .825rem;
+  line-height: 1.35;
+  font-weight: 450;
+  color: var(--aw-fg);
+}
+.aw-text > span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 280ms ease, transform 400ms var(--aw-ease);
+}
+.aw-text > span[data-state="active"] { opacity: .92; transform: none; transition-delay: 80ms; }
+.aw-text > span[data-state="exit"] { transform: translateY(-5px); }
+@media (prefers-reduced-motion: reduce) {
+  .aw *, .aw *::after { animation: none !important; transition: none !important; }
+  .aw-mark-gold { display: none; }
+  .aw-text > span { transform: none !important; }
+}

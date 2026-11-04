@@ -91,6 +91,17 @@ class PaperAnalysisState(AgentState):
     summary: str | None = None
     notes: list[str] = Field(default_factory=list)
     credibility: dict[str, Any] | None = None
+    evidence_candidates: list[PaperEvidence] = Field(default_factory=list)
+
+class PaperEvidence(BaseModel):
+    source_id: str
+    section_index: int
+    heading: str
+    excerpt: str
+
+    page_start: int | None = None
+    page_end: int | None = None
+
 
 
 

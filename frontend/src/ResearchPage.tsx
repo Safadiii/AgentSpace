@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Bookmark,
   Check, ChevronDown, Command, Compass, Copy,
@@ -20,6 +20,7 @@ import './css/research.css'
 import ResearchResultsModal from './components/research/ResearchResultsModal'
 import PaperFeedbackActions from './components/research/PaperFeedbackActions'
 import SummaryMarkdown, { InlineMarkdown } from './lib/SummaryMarkdown'
+import AgentWorking, { CREDIBILITY_PHASES, SUMMARY_PHASES } from './lib/AgentWorking'
 import type { PaperAction } from './api/researchApi'
 
 type LibraryView = 'all' | 'saved' | `collection:${string}`
@@ -112,6 +113,46 @@ function credibilitySections(report: CredibilityReport): SummarySection[] {
   if (items.length) sections.push({ title: 'Evidence index', body: '', items })
   return sections
 }
+
+// <evidence-helpers>
+// Citations are turned into links to this sentinel address at render time, so the shared markdown renderer
+// needs no changes; clicks on them are intercepted and show the cited excerpt instead of navigating.
+const EVIDENCE_HREF = 'https://evidence.invalid/'
+
+const evidenceHref = (id: string) => EVIDENCE_HREF + encodeURIComponent(id).replace(/[()]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+
+function evidenceIdFromHref(href: string | null | undefined): string | null {
+  if (!href || !href.startsWith(EVIDENCE_HREF)) return null
+  try { return decodeURIComponent(href.slice(EVIDENCE_HREF.length)) } catch { return null }
+}
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Rewrites mentions of known source ids ("[S1]", "[S1, S2]", "(S3)", "S4") as markdown links to the evidence sentinel.
+ * Bare ids are only linked when they look like labels (a letter and 2+ characters) so a source id like "1" can't
+ * hijack ordinary numbers; the bracketed form works for any id.
+ */
+function linkCitations(text: string, ids: string[]): string {
+  if (!text || ids.length === 0) return text
+  const sorted = [...new Set(ids)].sort((a, b) => b.length - a.length)
+  const anyId = sorted.map(escapeRegExp).join('|')
+  const bareIds = sorted.filter(id => id.length >= 2 && /[A-Za-z]/.test(id)).map(escapeRegExp).join('|')
+  const group = `\\[\\s*(?:[Ss]ources?:?\\s*)?((?:${anyId})(?:\\s*[,;]\\s*(?:${anyId}))*)\\s*\\](?!\\()`
+  const solo = bareIds ? `|(?<![\\w\\[/-])(${bareIds})(?![\\w\\]-])` : ''
+  const chip = (id: string) => `[${id.replace(/[[\]]/g, '')}](${evidenceHref(id)})`
+  const pattern = new RegExp(group + solo, 'g')
+  const link = (part: string) => part.replace(pattern, (_match, grouped: string | undefined, single: string | undefined) =>
+    single ? chip(single) : (grouped?.match(new RegExp(anyId, 'g')) ?? []).map(chip).join(' '))
+  // Odd indices are code spans/fences (captured by the split); leave those untouched.
+  return text.split(/(```[\s\S]*?```|`[^`\n]+`)/).map((part, i) => i % 2 === 1 ? part : link(part)).join('')
+}
+
+function evidencePages(e: { page_start: number | null; page_end: number | null }): string {
+  if (e.page_start == null) return ''
+  return e.page_end != null && e.page_end !== e.page_start ? `pp. ${e.page_start}–${e.page_end}` : `p. ${e.page_start}`
+}
+// </evidence-helpers>
 
 function summaryToText(sections: SummarySection[]): string {
   return sections.map(s => [s.title && `## ${s.title}`, s.body, ...s.items.map(i => `- ${i}`)].filter(Boolean).join('\n')).join('\n\n')
@@ -226,6 +267,7 @@ export default function ResearchPage() {
   const [credibilityLoading, setCredibilityLoading] = useState(false)
   const [credibilityError, setCredibilityError] = useState('')
   const credibilityAbort = useRef<AbortController | null>(null)
+  const [activeSource, setActiveSource] = useState<string | null>(null)
 
   // Never display one user's or paper's feedback while another paper is selected.
   const displayedPaperState = selectedPaperState?.paperId === selectedId
@@ -544,6 +586,7 @@ export default function ResearchPage() {
     credibilityAbort.current = controller
     setCredibilityLoading(true)
     setCredibilityError('')
+    setActiveSource(null)
     try {
       const result = await researchApi.generateCredibility(Number(paperId), controller.signal)
       if (controller.signal.aborted) return
@@ -563,6 +606,7 @@ export default function ResearchPage() {
     setSummaryError('')
     setCredibilityLoading(false)
     setCredibilityError('')
+    setActiveSource(null)
     setAction(null)
   }
   function chooseAction(next: ResearchAction) {
@@ -570,6 +614,7 @@ export default function ResearchPage() {
     setQuestion('')
     setCompareId(otherPapers[0]?.id ?? '')
     setAction(next)
+    setActiveSource(null)
     if (next === 'summarize' && selected) void loadSummary(selected.id)
     if (next === 'credibility' && selected) void loadCredibility(selected.id)
   }
@@ -585,13 +630,27 @@ export default function ResearchPage() {
   const credibilityNote = selectedCredibility
     ? `Assessed from the paper's own text only (${selectedCredibility.content_source === 'pdf' ? 'full PDF' : selectedCredibility.content_source === 'abstract' ? 'abstract only, so treat it as limited' : 'source unknown'}). Claims were not checked against outside sources.`
     : ''
+  const evidenceIds = selectedCredibility?.evidence_index.map(e => e.source_id) ?? []
   const generated = action === 'summarize' ? {
-    label: 'SUMMARY', loadingText: 'Athena is reading the paper…', copyLabel: 'Copy summary', copied: 'Summary copied.', note: '',
+    label: 'SUMMARY', phases: SUMMARY_PHASES, copyLabel: 'Copy summary', copied: 'Summary copied.', note: '',
     loading: summaryLoading, error: summaryError, sections: summarySections, regenerate: (id: string) => void loadSummary(id, true),
+    linkText: (text: string) => text,
   } : action === 'credibility' ? {
-    label: 'CREDIBILITY', loadingText: 'Athena is checking the evidence…', copyLabel: 'Copy report', copied: 'Credibility report copied.', note: credibilityNote,
+    label: 'CREDIBILITY', phases: CREDIBILITY_PHASES, copyLabel: 'Copy report', copied: 'Credibility report copied.', note: credibilityNote,
     loading: credibilityLoading, error: credibilityError, sections: credibilitySectionList, regenerate: (id: string) => void loadCredibility(id, true),
+    linkText: (text: string) => linkCitations(text, evidenceIds),
   } : null
+  const activeEvidence = action === 'credibility' && activeSource !== null
+    ? selectedCredibility?.evidence_index.find(e => e.source_id === activeSource)
+    : undefined
+  // One delegated handler: citation chips are ordinary links to the evidence sentinel, so intercept them here.
+  function onGeneratedClick(event: ReactMouseEvent<HTMLElement>) {
+    const anchor = (event.target as HTMLElement).closest('a')
+    const id = evidenceIdFromHref(anchor?.getAttribute('href'))
+    if (id === null) return
+    event.preventDefault()
+    setActiveSource(current => current === id ? null : id)
+  }
   const agentActions = [
     { key: 'summarize', icon: Sparkles, subtitle: 'A concise, structured overview' },
     { key: 'ask', icon: MessageCircle, subtitle: 'Explore ideas and ask questions' },
@@ -773,18 +832,35 @@ export default function ResearchPage() {
               <strong>{selected.title}</strong>
               {generated.note && !generated.loading && !generated.error && <p className="research-feedback-hint">{generated.note}</p>}
             </div>
-            <div className="research-summary-scroll" aria-busy={generated.loading}>
-              {generated.loading && <div className="research-summary-loading" role="status">
-                <span className="research-summary-status"><span className="research-run-dot research-run-dot--live"/>{generated.loadingText}</span>
-                {[92, 100, 78, 96, 60].map((w, i) => <span key={i} className="research-skeleton research-skeleton--line" style={{ width: `${w}%` }} aria-hidden="true"/>)}
+            <div className={activeEvidence ? 'research-summary-scroll research-summary-scroll--with-evidence' : 'research-summary-scroll'} aria-busy={generated.loading} onClick={onGeneratedClick} onAuxClick={onGeneratedClick}>
+              {generated.loading && <div className="research-summary-loading">
+                <AgentWorking
+                  phases={generated.phases}
+                  label={action === 'credibility' ? 'Reviewing methods and supporting evidence' : 'Preparing a structured paper summary'}
+                />
+                <div className="research-summary-skeletons" aria-hidden="true">
+                  {[92, 100, 78, 96, 60].map((w, i) => <span key={i} className="research-skeleton research-skeleton--line" style={{ width: `${w}%` }}/>) }
+                </div>
               </div>}
               {!generated.loading && generated.error && <div className="research-api-error" role="alert"><span>{generated.error}</span><Button type="button" variant="outline" size="sm" className="research-secondary-button" onClick={() => generated.regenerate(selected.id)}>Retry</Button></div>}
               {!generated.loading && !generated.error && generated.sections.map((section, index) => <section className="research-summary-section" key={`${section.title}-${index}`}>
                 <div className="research-section-title"><span className="research-section-index">{String(index + 1).padStart(2, '0')}</span>{section.title && <h3>{section.title}</h3>}</div>
-                {section.body && <SummaryMarkdown text={section.body} />}
-                {section.items.length > 0 && <ul className="research-summary-list">{section.items.map((item, i) => <li key={i}><InlineMarkdown text={item} /></li>)}</ul>}
+                {section.body && <SummaryMarkdown text={generated.linkText(section.body)} />}
+                {section.items.length > 0 && <ul className="research-summary-list">{section.items.map((item, i) => <li key={i}><InlineMarkdown text={generated.linkText(item)} /></li>)}</ul>}
               </section>)}
             </div>
+            {activeEvidence && <aside className="research-evidence" aria-label={`Source ${activeEvidence.source_id}`} aria-live="polite">
+              <div className="research-evidence-head">
+                <span className="research-eyebrow">SOURCE <span className="research-dot-separator">·</span> {activeEvidence.source_id}</span>
+                <Button type="button" variant="ghost" size="icon" className="research-evidence-close" aria-label="Close excerpt" title="Close excerpt" onClick={() => setActiveSource(null)}><X size={14}/></Button>
+              </div>
+              <strong className="research-evidence-heading">{activeEvidence.heading}</strong>
+              {evidencePages(activeEvidence) && <span className="research-evidence-meta">{evidencePages(activeEvidence)}</span>}
+              {activeEvidence.excerpt?.trim()
+                ? <blockquote className="research-evidence-excerpt">{activeEvidence.excerpt.trim()}</blockquote>
+                : <p className="research-feedback-hint">No excerpt was stored for this source. Regenerate the report to retrieve it.</p>}
+              {selectedCredibility?.content_source === 'pdf' && selected.sourceUrl && activeEvidence.page_start != null && <a className="research-evidence-link" href={`${selected.sourceUrl}#page=${activeEvidence.page_start}`} target="_blank" rel="noopener noreferrer">Open PDF at p. {activeEvidence.page_start} <ArrowUpRight size={12}/></a>}
+            </aside>}
             <DialogFooter>
               <Button variant="ghost" onClick={closeAction}>Close</Button>
               <Button variant="outline" disabled={generated.loading} onClick={() => generated.regenerate(selected.id)}><RefreshCw size={15}/> Regenerate</Button>
