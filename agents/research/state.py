@@ -1,7 +1,8 @@
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, model_validator, field_validator
 from typing import Literal, Any
 from backend.research.schemas import PaperCreate
 from core.models import AgentState
+from typing_extensions import Self
 
 class Paper(BaseModel):
     """ Each research paper instance modelled """
@@ -101,6 +102,31 @@ class PaperEvidence(BaseModel):
 
     page_start: int | None = None
     page_end: int | None = None
+
+class PageText(BaseModel):
+    page_number: int = Field(ge=1)
+    text: str = ""
+
+
+class PaperChunk(BaseModel):
+    paper_id: int = Field(ge=1)
+    chunk_index: int = Field(ge=0)
+    content: str
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+
+    @field_validator('content', mode='after')
+    @classmethod
+    def chunk_not_empty(cls, content: str) -> str:
+        if len(content.strip()) == 0:
+            raise ValueError("Content of this chunk is empty")
+        return content
+
+    @model_validator(mode='after')
+    def check_page_numbers(self) -> Self:
+        if self.page_start > self.page_end:
+            raise ValueError("Page Start Cannot be greater than page end")
+        return self
 
 
 
