@@ -2,8 +2,9 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, ClassVar, Optional
 
-from sqlalchemy import CheckConstraint, Column, JSON, UniqueConstraint, Text
+from sqlalchemy import CheckConstraint, Column, JSON, UniqueConstraint, Text, ForeignKey, Integer
 from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -153,6 +154,14 @@ class Paper(SQLModel, table=True):
         back_populates="paper"
     )
 
+    chunks: list["PaperChunkRecord"] = Relationship(
+        back_populates="paper",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True
+        }
+    )
+
 
 class PaperAuthor(SQLModel, table=True):
     __tablename__: ClassVar[Any] = "paper_authors"
@@ -284,3 +293,80 @@ class PaperExtractionCache(SQLModel, table=True):
     source_signature: str = Field(max_length=64)
     sections: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     extracted_at: datetime = Field(default_factory=utc_now)
+
+class PaperChunkRecord(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "paper_chunks"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "paper_id", "chunk_index",
+            name="uq_paper_chunk_index"
+        ),
+        CheckConstraint(
+            "chunk_index >= 0",
+            name="ck_chunk_index_nonnegative"
+        ),
+        CheckConstraint(
+            "page_start >= 1 AND page_end >= page_start",
+            name="ck_chunk_page_range"
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+
+    paper_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("papers.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True
+        )
+    )
+
+    chunk_index: int = Field(ge=0)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    page_start: int = Field(ge=1)
+    page_end: int = Field(ge=1)
+
+    paper: Paper = Relationship(back_populates="chunks")
+
+    embeddings: list["ChunkEmbeddingRecord"] = Relationship(
+        back_populates="chunk",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True
+        }
+    )
+
+
+class ChunkEmbeddingRecord(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "chunk_embeddings"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "chunk_id", "model_name",
+            name="uq_chunk_embedding_model"
+        ),
+        CheckConstraint(
+            "dimensions > 0",
+            name="ck_embedding_dimensions_positive"
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+
+    chunk_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("paper_chunks.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True
+        )
+    )
+
+    model_name: str = Field(max_length=255)
+    dimensions: int = Field(gt=0)
+
+    vector: list[float] = Field(sa_column=Column(JSON, nullable=False))
+
+    chunk: PaperChunkRecord = Relationship(back_populates="embeddings")

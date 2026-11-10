@@ -1,7 +1,7 @@
 from sqlmodel import select, Session, func
 from datetime import datetime
 
-from storage.research.models import Paper, PaperAuthor, PaperTopic, ResearchInterest, InterestType, UserProfile, RecommendationRun, RecommendationItem, PaperInteraction, PaperAction
+from storage.research.models import Paper, PaperChunkRecord, PaperAuthor, PaperTopic, ResearchInterest, InterestType, UserProfile, RecommendationRun, RecommendationItem, PaperInteraction, PaperAction, ChunkEmbeddingRecord
 from typing import List
 from sqlalchemy.orm import selectinload
 
@@ -301,3 +301,64 @@ class PaperInteractionRepository:
     def add(self, interaction: PaperInteraction) -> None:
         self.session.add(interaction)
 
+class PaperChunkRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def add_chunks(self, chunks: list[PaperChunkRecord]) -> None:
+        """ Stage Multiple Chunks for insertion. """
+        if not chunks:
+            return
+
+        self.session.add_all(chunks)
+        self.session.flush()
+
+    def get_by_paper_id(self, paper_id: int) -> list[PaperChunkRecord]:
+        """ Retrieve Paper Chunks in their original order. """
+
+        statement = (
+            select(PaperChunkRecord).where(PaperChunkRecord.paper_id == paper_id).order_by(PaperChunkRecord.chunk_index.asc())
+        )
+
+        return list(self.session.exec(statement).all())
+
+    def delete_by_paper_id(self, paper_id: int) -> None:
+        chunks = self.get_by_paper_id(paper_id)
+
+        for chunk in chunks:
+            self.session.delete(chunk)
+
+        self.session.flush()
+
+class ChunkEmbeddingRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def add_embeddings(self, embeddings: list[ChunkEmbeddingRecord]) -> None:
+        if not embeddings:
+            return
+        for embedding in embeddings:
+            if len(embedding.vector) != embedding.dimensions:
+                raise ValueError("Embedding dimensions do not match vector lengths")
+        self.session.add_all(embeddings)
+        self.session.flush()
+
+    def get_by_chunk_ids(self, chunk_ids: list[int], model_name: str) -> list[ChunkEmbeddingRecord]:
+        """ Retrieve embeddings for specific chunks and model """
+
+        if not chunk_ids:
+            return []
+
+        statement = (
+            select(ChunkEmbeddingRecord).where(ChunkEmbeddingRecord.chunk_id.in_(chunk_ids), ChunkEmbeddingRecord.model_name == model_name)
+        )
+
+        results = self.session.exec(statement).all()
+
+        embeddings_by_id = {
+            embedding.chunk_id: embedding for embedding in results
+        }
+
+        return [
+            embeddings_by_id[chunk_id] for chunk_id in chunk_ids if chunk_id in embeddings_by_id
+        ]

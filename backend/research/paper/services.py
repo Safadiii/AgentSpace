@@ -695,3 +695,6 @@ class PaperInteractionServices:
             disliked=rating == "dislike",
             saved=saved if saved is not None else False
         )
+
+class IndexingService():
+    
